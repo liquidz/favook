@@ -1,0 +1,5 @@
+appengine-generated
+pom.xml
+*jar
+lib
+classes
