@@ -12,6 +12,8 @@
      )
   )
 
+;(ds/defentity Book [^:key isbn title author])
+
 
 ;(defn- json-conv [obj]
 ;  (cond
