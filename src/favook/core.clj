@@ -12,7 +12,9 @@
      )
   )
 
-;(ds/defentity Book [^:key isbn title author])
+(ds/defentity User [^:key name])
+(ds/defentity Book [^:key isbn title author])
+(ds/defentity Favorite [^:key book user date])
 
 
 ;(defn- json-conv [obj]
