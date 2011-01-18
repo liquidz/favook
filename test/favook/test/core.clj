@@ -18,8 +18,8 @@
 (defn- testGET [url] (favook-app-handler (request :get url)))
 
 ;; Entity Definitions {{{
-(ds/defentity User [^:key name avatar secret-mail date])
-(ds/defentity Book [^:key title author isbn])
+(ds/defentity User [^:key name avatar secret-mail point date])
+(ds/defentity Book [^:key title author isbn point])
 (ds/defentity LikeBook [book user point date])
 (ds/defentity LikeUser [to-user from-user point date])
 (ds/defentity Comment [book user text date])
@@ -28,7 +28,7 @@
 
 ;; Util Test
 (deftest test-entity? ; {{{
-  (is (entity? (User. "a" "b" "c" "d")))
+  (is (entity? (User. "a" "b" "c" "d" "e")))
   ) ; }}}
 
 ;; Model Test
@@ -104,11 +104,9 @@
   ) ; }}}
 
 (deftest test-like-user ; {{{
-  (let [user1 (create-user "aa" "")
-        user2 (create-user "bb" "")
-        ]
-    (ds/save! [user1 user2])
-
+  (let [user1 (create-user "aa" "") user2 (create-user "bb" "")]
+    (like-user user1 user1)
+    (is (zero? (ds/query :kind LikeUser :count-only? true)))
     (like-user user1 user2)
     (is (= 1 (ds/query :kind LikeUser :count-only? true)))
     (like-user user2 user1)
@@ -123,6 +121,28 @@
       )
     )
   ) ; }}}
+
+;(deftest test-get-like-user-list
+;  (let [
+;        user1 (create-user "aa" "")
+;        user2 (create-user "bb" "")
+;        user3 (create-user "cc" "")
+;        ]
+;    (like-user user2 user1)
+;    (like-user user3 user1)
+;    (like-user user3 user2)
+;
+;    (are [x y] (= x y)
+;      3 (count (get-like-user-list))
+;      1 (count (get-like-user-list :limit 1))
+;      2 (count (get-like-user-list :total? true))
+;      1 (count (get-like-user-list :total? true :limit 1))
+;      2 (count (get-like-user-list :user user1))
+;
+;      "cc" (:name (ds/retrieve User (:to-user (first (get-like-user-list :total? true)))))
+;      )
+;    )
+;  )
 
 (deftest test-activity ; {{{
   (let [user (create-user "aa" "") book1 (create-book "title" "" "") book2 (create-book "hoge" "" "")]
@@ -152,7 +172,6 @@
   ; json response
   (are [x y z] (= x (-> y :body json/read-json z))
     "masa" (testGET "/user/masa") :name
-    (today) (testGET "/user/masa") :date
     nil (testGET "/user/masa") :secret-mail
     nil (testGET "/user/donotexistuser") identity
     )

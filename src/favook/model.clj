@@ -8,8 +8,8 @@
 (def *default-limit* 10)
 
 ;; Entity Definitions
-(ds/defentity User [^:key name avatar secret-mail date])
-(ds/defentity Book [^:key title author isbn])
+(ds/defentity User [^:key name avatar secret-mail point date])
+(ds/defentity Book [^:key title author isbn point])
 (ds/defentity LikeBook [book user point date])
 (ds/defentity LikeUser [to-user from-user point date])
 (ds/defentity Comment [book user text date])
@@ -26,6 +26,10 @@
       (new-secret-mailaddress)
       )
     )
+  )
+
+(defn- add-point [entity]
+  (ds/save! (assoc entity :point (inc (:point entity))))
   )
 
 (defn- if-not-today-add-point [query-result else-part-fn]
@@ -46,7 +50,7 @@
 ;; User
 (defn create-user [name avatar]
   (aif (ds/retrieve User name) it
-       (let [user (User. name "" (new-secret-mailaddress) (today))]
+       (let [user (User. name "" (new-secret-mailaddress) 0 (now))]
          (ds/save! user)
          user
          )
@@ -64,7 +68,7 @@
 ;; Book
 (defn create-book [title author isbn]
   (aif (ds/retrieve Book title) it
-       (let [book (Book. title author isbn)]
+       (let [book (Book. title author isbn 0)]
          (ds/save! book)
          book
          )
@@ -86,6 +90,7 @@
     #(ds/save! (LikeBook. book user 1 (today)))
     )
   (create-activity book user "like")
+  (add-point book)
   )
 
 (defn get-like-book-list [#^User user & {:keys [limit page], :or {limit *default-limit* page 1}}]
@@ -94,11 +99,26 @@
 
 ;; LikeUser
 (defn like-user [#^User to-user, #^User from-user]
-  (if-not-today-add-point
-    (ds/query :kind LikeUser :filter [(= :to-user to-user) (= :from-user from-user)])
-    #(ds/save! (LikeUser. to-user from-user 1 (today)))
+  (when-not (= to-user from-user)
+    (if-not-today-add-point
+      (ds/query :kind LikeUser :filter [(= :to-user to-user) (= :from-user from-user)])
+      #(ds/save! (LikeUser. to-user from-user 1 (today)))
+      )
+    (add-point to-user)
     )
   )
+
+;(defn get-like-user-list [& {:keys [user total? limit page], :or {user nil, total? false, limit *default-limit*, page 1}}]
+;  (let [offset (* limit (dec page))]
+;    (cond
+;      user (ds/query :kind LikeUser :filter (= :from-user user) :sort [:point] :limit limit :offset offset)
+;      total?  (take limit (sort #(> (:point %) (:point %2)) (map (fn [l]
+;                                                       (reduce (fn [res x] (assoc res :point (+ (:point res) (:point x)))) l)
+;                                                       ) (group-by :to-user (ds/query :kind LikeUser)))))
+;      :else (ds/query :kind LikeUser :sort [:point] :limit limit :offset offset)
+;      )
+;    )
+;  )
 
 ;; Comment
 (defn create-comment [#^Book book, #^User user, text]
