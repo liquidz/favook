@@ -1,87 +1,140 @@
 (ns favook.test.core
   (:use
-     [favook.core]
+     [favook core model util]
      ds-util
      :reload)
-  (:use [clojure.test])
+  (:use clojure.test ring.mock.request)
 
   (:require
      [appengine-magic.testing :as ae-testing]
      [appengine-magic.services.datastore :as ds]
+     [clojure.contrib.json :as json]
      )
-  (:import java.util.Date)
   )
 
 (use-fixtures :each (ae-testing/local-services :all))
 
 (defn- foreach [f l] (doseq [x l] (f x)))
+(defn- testGET [url] (favook-app-handler (request :get url)))
 
-(ds/defentity TestEntity [^:key a b])
-(ds/defentity SubEntity [^:key c d])
-
-(deftest test-entity?
-  (is (entity? (TestEntity. "a" "b")))
-  )
-
-
-;(ds/defentity User [^:key name login-type secret-mail])
-(ds/defentity User [^:key name secret-mail point date])
+;; Entity Definitions {{{
+(ds/defentity User [^:key name avatar secret-mail date])
 (ds/defentity Book [^:key title author isbn])
-(ds/defentity Favorite [book user point date])
+(ds/defentity LikeBook [book user point date])
+(ds/defentity LikeUser [to-user from-user point date])
 (ds/defentity Comment [book user text date])
 (ds/defentity Activity [book user message date])
-
-; {{{
-;(defn bytes->hex-str [bytes]
-;  (apply str (map #(string/tail 2 (str "0" (Integer/toHexString (bit-and 0xff %)))) bytes))
-;  )
-;(defn digest-hex [algorithm s]
-;  (if-not (string/blank? s)
-;    (-> (MessageDigest/getInstance algorithm) (.digest (.getBytes s)) bytes->hex-str)
-;    )
-;  )
-;(def str->md5 (partial digest-hex "MD5"))
-;(def str->sha1 (partial digest-hex "SHA1"))
 ; }}}
 
-(deftest test-user
-  (let [u1 (User. "Alice" "")
-        u2 (User. "Bob" "")
-        b1 (Book. "aaa" "bbb" "")
-        b2 (Book. "ccc" "ddd" "")
-        b3 (Book. "eee" "fff" "")
-        ]
-    (ds/save! [u1 u2 b1 b2 b3
-               (Favorite. b1 u1 2 (Date.))
-               (Favorite. b1 u2 1 (Date.))
-               (Favorite. b2 u1 1 (Date.))
-               (Favorite. b3 u2 1 (Date.))
-               (Comment. b1 u1 "zzz" (Date.))
-               (Comment. b2 u1 "yyy" (Date.))
-               (Comment. b1 u2 "xxx" (Date.))
-               (Comment. b3 u2 "www" (Date.))
-               ])
+;; Util Test
+(deftest test-entity? ; {{{
+  (is (entity? (User. "a" "b" "c" "d")))
+  ) ; }}}
 
-    (ds/query :kind Favorite )
+;; Model Test
+(deftest test-create-user ; {{{
+  (create-user "aa" "")
+  (is (= 1 (ds/query :kind "User" :count-only? true)))
+  (create-user "bb" "")
+  (is (= 2 (ds/query :kind "User" :count-only? true)))
+  (create-user "aa" "")
+  (is (= 2 (ds/query :kind "User" :count-only? true)))
+  ); }}}
+
+(deftest test-get-user ; {{{
+  (create-user "aa" "")
+  (is (= "aa" (:name (get-user "aa"))))
+  (is (= "aa" (:name (get-user {:name "aa"}))))
+  (is (nil? (get-user "bb")))
+  ) ; }}}
+
+(deftest test-reset-user-secret-mail; {{{
+  (let [user (create-user "aa" "")
+        old-mail (:secret-mail user)]
+    (reset-user-secret-mail user)
+    (is (not= old-mail (:secret-mail (ds/retrieve User "aa"))))
+    )
+  ) ; }}}
+
+(deftest test-get-book ; {{{
+  (create-book "title" "" "")
+  (is (= "title" (:title (get-book "title"))))
+  (is (= "title" (:title (get-book {:title "title"}))))
+  (is (nil? (get-book "unknown")))
+  ) ; }}}
+
+(deftest test-like-book ; {{{
+  (let [user1 (create-user "aa" "")
+        user2 (create-user "bb" "")
+        book (create-book "title" "" "")]
+    (ds/save! [user1 user2 book])
+
+    (like-book book user1)
+    (is (= 1 (ds/query :kind LikeBook :count-only? true)))
+    (like-book book user2)
+    (is (= 2 (ds/query :kind LikeBook :count-only? true)))
+    (like-book book user1)
+    (is (= 2 (ds/query :kind LikeBook :count-only? true)))
+    (let [like (first (ds/query :kind LikeBook :filter (= :user user1)))]
+      (is (= 1 (:point like)))
+      (ds/save! (assoc like :date "1900-01-01"))
+      (like-book book user1)
+      (is (= 2 (:point (first (ds/query :kind LikeBook :filter (= :user user1))))))
+      )
+    )
+  ) ; }}}
+
+(deftest test-get-like-book-list
+  (let [user1 (create-user "aa" "") user2 (create-user "bb" "") user3 (create-user "cc" "")
+        book1 (create-book "hoge" "" "") book2 (create-book "fuga" "" "") book3 (create-book "neko" "" "")]
+    (like-book book1 user1) (like-book book2 user1) (like-book book3 user1)
+    (ds/save! (assoc (first (ds/query :kind LikeBook :filter [(= :user user1) (= :book book3)])) :point 3))
+    (ds/save! (assoc (first (ds/query :kind LikeBook :filter [(= :user user1) (= :book book2)])) :point 2))
+    (like-book book1 user2) (like-book book3 user2)
+
+    (are [x y] (= x y)
+      3 (count (get-like-book-list user1))
+      2 (count (get-like-book-list user2))
+      0 (count (get-like-book-list user3))
+      1 (count (get-like-book-list user1 :limit 1))
+      "hoge" (:title (ds/retrieve Book (:book (first (get-like-book-list user1 :limit 1)))))
+      "fuga" (:title (ds/retrieve Book (:book (first (get-like-book-list user1 :limit 1 :page 2)))))
+      )
     )
   )
 
-;(deftest test-hoge
-;  (let [alice (User. 1 "Alice" "twitter" "")
-;        bob (User. 2 "Bob" "guest" "")
-;        masa (User. 3 "masa" "facebook" "")
-;        book (Book. "title" "isbn" "neko")
-;        book2 (Book. "hoge" "fuga" "inu")
-;        book3 (Book. "uo" "chan" "aaa")
-;        fav (Favorite. book alice 2 (Date.))
-;        fav2 (Favorite. book bob 1 (Date.))
-;        fav3 (Favorite. book2 alice 1 (Date.))
-;        fav4 (Favorite. book3 masa 1 (Date.))
-;        ]
-;    (ds/save! [alice bob book book2 book3 fav fav2 fav3 fav4])
-;
-;    ;(doseq [x (ds/query :kind Favorite :filter (= :user alice) :sort [:point])]
-;    ;  (println x)
-;    ;  )
-;    )
-;  )
+(deftest test-like-user ; {{{
+  (let [user1 (create-user "aa" "")
+        user2 (create-user "bb" "")
+        ]
+    (ds/save! [user1 user2])
+
+    (like-user user1 user2)
+    (is (= 1 (ds/query :kind LikeUser :count-only? true)))
+    (like-user user2 user1)
+    (is (= 2 (ds/query :kind LikeUser :count-only? true)))
+    (like-user user1 user2)
+    (is (= 2 (ds/query :kind LikeUser :count-only? true)))
+    (let [like (first (ds/query :kind LikeUser :filter (= :to-user user1)))]
+      (is (= 1 (:point like)))
+      (ds/save! (assoc like :date "1900-01-01"))
+      (like-user user1 user2)
+      (is (= 2 (:point (first (ds/query :kind LikeUser :filter (= :to-user user1))))))
+      )
+    )
+  ) ; }}}
+
+(deftest test-controller
+  (create-user "masa" "")
+
+  (is (= "hello" (:body (testGET "/echo/hello"))))
+
+  ; json response
+  (are [x y z] (= x (-> y :body json/read-json z))
+    "masa" (testGET "/user/masa") :name
+    (today) (testGET "/user/masa") :date
+    nil (testGET "/user/masa") :secret-mail
+    nil (testGET "/user/donotexistuser") identity
+    )
+  )
+
