@@ -130,16 +130,16 @@
     (ds/save! (assoc (first (ds/query :kind Activity :filter [(= :user user) (= :book book1)])) :date "1900-01-01"))
 
     (are [x y] (= x y)
-      2 (count (find-activity :user user))
-      1 (count (find-activity :user user :limit 1))
-      1 (count (find-activity :book book1))
+      2 (count (get-activity-list :user user))
+      1 (count (get-activity-list :user user :limit 1))
+      1 (count (get-activity-list :book book1))
 
-      "hoge" (:title (ds/retrieve Book (:book (first (find-activity :user user)))))
-      "title" (:title (ds/retrieve Book (:book (first (find-activity :user user :limit 1 :page 2)))))
+      "hoge" (:title (ds/retrieve Book (:book (first (get-activity-list :user user)))))
+      "title" (:title (ds/retrieve Book (:book (first (get-activity-list :user user :limit 1 :page 2)))))
 
-      "aa" (:name (ds/retrieve User (:user (first (find-activity :book book1)))))
-      "like" (:message (first (find-activity :book book1)))
-      "comment" (:message (first (find-activity :book book2)))
+      "aa" (:name (ds/retrieve User (:user (first (get-activity-list :book book1)))))
+      "like" (:message (first (get-activity-list :book book1)))
+      "comment" (:message (first (get-activity-list :book book2)))
       )
     )
   ) ; }}}

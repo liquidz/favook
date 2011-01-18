@@ -5,6 +5,7 @@
 
 ;; Constants
 (def *mail-domain* "@favook.appspotmail.com")
+(def *default-limit* 10)
 
 ;; Entity Definitions
 (ds/defentity User [^:key name avatar secret-mail date])
@@ -35,6 +36,11 @@
        (else-part-fn)
        )
   )
+
+(defn- get-entity-list [kind key val & {:keys [limit page], :or {limit *default-limit* page 1}}]
+  (ds/query :kind kind :filter (= key val) :sort [[:date :desc]] :limit limit :offset (* limit (dec page)))
+  )
+
 ; }}}
 
 ;; User
@@ -70,12 +76,8 @@
 
 ;; Activity
 (defn create-activity [#^Book book, #^User user, message]
-  (ds/save! (Activity. book user message (now)))
-  )
-
-(defn find-activity [key val & {:keys [limit page], :or {limit 10 page 1}}]
-  (ds/query :kind Activity :filter (= key val) :sort [[:date :desc]] :limit limit :offset (* limit (dec page)))
-  )
+  (ds/save! (Activity. book user message (now))))
+(def get-activity-list (partial get-entity-list Activity))
 
 ;; Like Book
 (defn like-book [#^Book book, #^User user]
@@ -86,7 +88,7 @@
   (create-activity book user "like")
   )
 
-(defn get-like-book-list [#^User user & {:keys [limit page], :or {limit 10 page 1}}]
+(defn get-like-book-list [#^User user & {:keys [limit page], :or {limit *default-limit* page 1}}]
   (ds/query :kind LikeBook :filter (= :user user) :sort [:point] :limit limit :offset (* limit (dec page)))
   )
 
@@ -101,6 +103,5 @@
 ;; Comment
 (defn create-comment [#^Book book, #^User user, text]
   (ds/save! (Comment. book user text (now)))
-  (create-activity book user "comment")
-  )
-
+  (create-activity book user "comment"))
+(def get-comment-list (partial get-entity-list Comment))
