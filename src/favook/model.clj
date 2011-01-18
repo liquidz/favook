@@ -68,12 +68,26 @@
   (ds/retrieve Book (if (string? arg) arg title))
   )
 
+;; Activity
+(defn create-activity [#^Book book, #^User user, message]
+  (ds/save! (Activity. book user message (now)))
+  )
+
+(defn find-activity [key val & {:keys [limit page], :or {limit 10 page 1}}]
+  (ds/query :kind Activity :filter (= key val) :sort [[:date :desc]] :limit limit :offset (* limit (dec page)))
+  )
+
 ;; Like Book
 (defn like-book [#^Book book, #^User user]
   (if-not-today-add-point
     (ds/query :kind LikeBook :filter [(= :book book) (= :user user)])
     #(ds/save! (LikeBook. book user 1 (today)))
     )
+  (create-activity book user "like")
+  )
+
+(defn get-like-book-list [#^User user & {:keys [limit page], :or {limit 10 page 1}}]
+  (ds/query :kind LikeBook :filter (= :user user) :sort [:point] :limit limit :offset (* limit (dec page)))
   )
 
 ;; LikeUser
@@ -86,10 +100,7 @@
 
 ;; Comment
 (defn create-comment [#^Book book, #^User user, text]
-  (ds/save! (Comment. book user text (today)))
+  (ds/save! (Comment. book user text (now)))
+  (create-activity book user "comment")
   )
 
-;; Activity
-(defn create-activity [#^Book book, #^User user, message]
-  (ds/save! (Activity. book user message (today)))
-  )

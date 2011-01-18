@@ -84,7 +84,7 @@
     )
   ) ; }}}
 
-(deftest test-get-like-book-list
+(deftest test-get-like-book-list ; {{{
   (let [user1 (create-user "aa" "") user2 (create-user "bb" "") user3 (create-user "cc" "")
         book1 (create-book "hoge" "" "") book2 (create-book "fuga" "" "") book3 (create-book "neko" "" "")]
     (like-book book1 user1) (like-book book2 user1) (like-book book3 user1)
@@ -101,7 +101,7 @@
       "fuga" (:title (ds/retrieve Book (:book (first (get-like-book-list user1 :limit 1 :page 2)))))
       )
     )
-  )
+  ) ; }}}
 
 (deftest test-like-user ; {{{
   (let [user1 (create-user "aa" "")
@@ -120,6 +120,26 @@
       (ds/save! (assoc like :date "1900-01-01"))
       (like-user user1 user2)
       (is (= 2 (:point (first (ds/query :kind LikeUser :filter (= :to-user user1))))))
+      )
+    )
+  ) ; }}}
+
+(deftest test-activity ; {{{
+  (let [user (create-user "aa" "") book1 (create-book "title" "" "") book2 (create-book "hoge" "" "")]
+    (like-book book1 user) (create-comment book2 user "hello")
+    (ds/save! (assoc (first (ds/query :kind Activity :filter [(= :user user) (= :book book1)])) :date "1900-01-01"))
+
+    (are [x y] (= x y)
+      2 (count (find-activity :user user))
+      1 (count (find-activity :user user :limit 1))
+      1 (count (find-activity :book book1))
+
+      "hoge" (:title (ds/retrieve Book (:book (first (find-activity :user user)))))
+      "title" (:title (ds/retrieve Book (:book (first (find-activity :user user :limit 1 :page 2)))))
+
+      "aa" (:name (ds/retrieve User (:user (first (find-activity :book book1)))))
+      "like" (:message (first (find-activity :book book1)))
+      "comment" (:message (first (find-activity :book book2)))
       )
     )
   ) ; }}}
