@@ -1,11 +1,16 @@
 (ns favook.util
-  (:require [clojure.contrib.string :as string])
+  (:use ds-util)
+  (:require [clojure.contrib.string :as string]
+     [clojure.contrib.json :as json]
+     )
   (:import [java.util TimeZone Calendar])
   )
 
 (defmacro aif [expr then & [else]]
   `(let [~'it ~expr] (if ~'it ~then ~else))
   )
+
+(defn remove-extra-key [m] (dissoc m :secret-mail))
 
 (def delete-html-tag (partial string/replace-re #"<.+?>" ""))
 
@@ -20,6 +25,16 @@
 (defn map-val-map [f m]
   (apply hash-map (mapcat (fn [[k v]] [k (f v)]) m))
   )
+
+(defn- json-conv [obj]
+  (cond
+    (or (seq? obj) (list? obj)) (map json-conv obj)
+    (map? obj) (map-val-map json-conv (remove-extra-key obj))
+    (key? obj) (key->str obj)
+    :else obj
+    )
+  )
+(defn to-json [obj] (json/json-str (json-conv obj)))
 
 (defn calendar-format
   ([calendar-obj format-str timezone-str]

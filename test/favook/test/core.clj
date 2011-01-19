@@ -285,14 +285,12 @@
       (testGET "/like/book?user=aa")
       )
 
-    (println (:body (testGET "/like/book?user=aa")))
+    (are [x y] (= x y)
+      2 (count (body->json (testGET "/like/book?user=aa")))
+      2 (count (body->json (testGET "/like/book?user=aa%2Cbb")))
 
-    ;(are [x y] (= x y)
-    ;  2 (count (body->json (testGET "/like/book?user=aa")))
-    ;  2 (count (body->json (testGET "/like/book?user=aa%2Cbb")))
-
-    ;  3 (:point (first (body->json (testGET "/like/book?user=aa%2Cbb"))))
-    ;  )
+      3 (:point (first (body->json (testGET "/like/book?user=aa%2Cbb"))))
+      )
     )
   )
 

@@ -2,7 +2,6 @@
   (:use
      [compojure.core :only [GET POST defroutes]]
      [compojure.route :only [not-found]]
-     [clojure.contrib.json :only [json-str]]
      [favook util model]
      ds-util
      )
@@ -14,19 +13,7 @@
      )
   )
 
-(defn remove-extra-key [m]
-  (dissoc m :secret-mail)
-  )
 
-(defn- json-conv [obj]
-  (cond
-    (or (seq? obj) (list? obj)) (map json-conv obj)
-    (map? obj) (map-val-map json-conv (remove-extra-key obj))
-    (key? obj) (key->str obj)
-    :else obj
-    )
-  )
-(defn to-json [obj] (json-str (json-conv obj)))
 
 
 (defmacro json-service [method path bind & body] ; {{{
@@ -42,34 +29,32 @@
 ;                                             (~fn (convert-map params#) session#)))
 ; }}}
 
+(defn println* [& args]
+  (apply println args)
+  (last args)
+  )
+
 (defroutes json-handler
   (apiGET "/user/:name" get-user)
   (apiGET "/book/:title" get-book)
-  ;(jsonGET "/like/book" {params :params}
-  ;         (let [p (convert-map params)
-  ;               limit (-> p :limit parse-int)
-  ;               page (-> p :page parse-int)
-  ;               users (aif (:user p) (map get-user (string/split #"\s*,\s*" it)))
-  ;               books (aif (:book p) (map get-book (string/split #"\s*,\s*" it)))
-  ;               ]
-  ;           (cond
-  ;             users
-  ;             (sort
-  ;               #(> (:point %1) (:point %2))
-  ;               (map
-  ;               (fn [l]
-  ;                 (reduce
-  ;                   (fn [res x]
-  ;                     (assoc res :point (+ (:point res) (:point x)))
-  ;                     )
-  ;                   l
-  ;                   )
-  ;                 )
-  ;               (vals (group-by :book (map #(get-like-book-list :user % :limit limit) users)))))
-  ;             :else ()
-  ;             )
-  ;           )
-  ;         )
+  (jsonGET "/like/book" {params :params}
+           (let [p (convert-map params)
+                 limit (aif (:limit p) (parse-int it) *default-limit*)
+                 page (aif (:page p) (parse-int it) 1)
+                 users (aif (:user p) (map get-user (string/split #"\s*,\s*" it)))
+                 books (aif (:book p) (map get-book (string/split #"\s*,\s*" it)))
+                 ]
+             (cond
+               users
+               (sort #(> (:point %1) (:point %2))
+                 (map (fn [l]
+                        (reduce
+                          (fn [res x] (assoc res :point (+ (:point res) (:point x)))) l))
+                      (vals (group-by :book (flatten (map #(get-like-book-list :user % :limit limit) users))))))
+               :else ()
+               )
+             )
+           )
   )
 
 (defroutes main-handler
