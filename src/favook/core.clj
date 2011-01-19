@@ -1,6 +1,6 @@
 (ns favook.core
   (:use
-     [compojure.core :only [GET defroutes]]
+     [compojure.core :only [GET POST defroutes]]
      [compojure.route :only [not-found]]
      [clojure.contrib.json :only [json-str]]
      [favook util model]
@@ -44,6 +44,32 @@
 
 (defroutes json-handler
   (apiGET "/user/:name" get-user)
+  (apiGET "/book/:title" get-book)
+  ;(jsonGET "/like/book" {params :params}
+  ;         (let [p (convert-map params)
+  ;               limit (-> p :limit parse-int)
+  ;               page (-> p :page parse-int)
+  ;               users (aif (:user p) (map get-user (string/split #"\s*,\s*" it)))
+  ;               books (aif (:book p) (map get-book (string/split #"\s*,\s*" it)))
+  ;               ]
+  ;           (cond
+  ;             users
+  ;             (sort
+  ;               #(> (:point %1) (:point %2))
+  ;               (map
+  ;               (fn [l]
+  ;                 (reduce
+  ;                   (fn [res x]
+  ;                     (assoc res :point (+ (:point res) (:point x)))
+  ;                     )
+  ;                   l
+  ;                   )
+  ;                 )
+  ;               (vals (group-by :book (map #(get-like-book-list :user % :limit limit) users)))))
+  ;             :else ()
+  ;             )
+  ;           )
+  ;         )
   )
 
 (defroutes main-handler
@@ -51,6 +77,9 @@
     {:status 200
      :headers {"Content-Type" "text/plain"}
      :body "hogehoge"}
+    )
+  (POST "/post" {params :params, session :session}
+    "post"
     )
   )
 
