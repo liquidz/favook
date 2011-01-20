@@ -13,9 +13,6 @@
      )
   )
 
-
-
-
 (defmacro json-service [method path bind & body] ; {{{
   `(~method ~path ~bind
       (let [res# (do ~@body)]
@@ -29,29 +26,51 @@
 ;                                             (~fn (convert-map params#) session#)))
 ; }}}
 
-(defn println* [& args]
-  (apply println args)
-  (last args)
+(defn aggregate-entity-points [group-keyword entity-list]
+  (sort
+    #(> (:point %1) (:point %2))
+    (map #(reduce (fn [res x] (assoc res :point (+ (:point res) (:point x)))) %)
+         (vals (group-by group-keyword entity-list))))
   )
+(defn- params->limit-and-page [params]
+  [(aif (:limit params) (parse-int it) *default-limit*)
+   (aif (:page p) (parse-int it) 1)])
 
 (defroutes json-handler
   (apiGET "/user/:name" get-user)
   (apiGET "/book/:title" get-book)
   (jsonGET "/like/book" {params :params}
            (let [p (convert-map params)
-                 limit (aif (:limit p) (parse-int it) *default-limit*)
-                 page (aif (:page p) (parse-int it) 1)
-                 users (aif (:user p) (map get-user (string/split #"\s*,\s*" it)))
-                 books (aif (:book p) (map get-book (string/split #"\s*,\s*" it)))
+                 [limit page] (params->limit-and-page p)
+
+                 key (if (:user p) :user (if (:book p) :book))
+                 data (if key (map (if (= key :user) get-user get-book) (string/split #"\s*,\s*" (key p))))
+                 likedata (flatten (map #(get-like-book-list key %) data))
                  ]
-             (cond
-               users
-               (sort #(> (:point %1) (:point %2))
-                 (map (fn [l]
-                        (reduce
-                          (fn [res x] (assoc res :point (+ (:point res) (:point x)))) l))
-                      (vals (group-by :book (flatten (map #(get-like-book-list :user % :limit limit) users))))))
-               :else ()
+
+             (case key
+               :user (take limit (aggregate-entity-points :book likedata))
+               :book (take limit (aggregate-entity-points :user likedata))
+               ()
+               )
+             )
+           )
+  (jsonGET "/like/user" {params :params}
+           (let [p (convert-map params)
+                 [limit page] (params->limit-and-page p)
+                 ;key (if (:to_user p) :to_user (if (:from_user p) :from_user))
+
+                 [key val] (aif (:to_user p) [:to-user it] (aif (:from_user p) [:from-user it]))
+
+                 data (if key (map get-user (string/split #"\s*,\s*" val)))
+                 likedata (flatten (map #(get-like-user-list key %) data))
+                 ]
+             (case key
+               :to-user
+               (take limit (aggregate-activity :from-user likedata))
+               :from-user
+               (take limit (aggregate-activity :to-user likedata))
+               ()
                )
              )
            )

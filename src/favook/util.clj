@@ -60,3 +60,8 @@
   )
 
 (def parse-int #(Integer/parseInt %))
+
+(defn println* [& args]
+  (apply println args)
+  (last args)
+  )

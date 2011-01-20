@@ -15,6 +15,7 @@
 (use-fixtures :each (ae-testing/local-services :all))
 
 (defn- foreach [f l] (doseq [x l] (f x)))
+(defn- body->json [res] (-> res :body json/read-json))
 (defn- testGET [url] (favook-app-handler (request :get url)))
 
 ;; Entity Definitions {{{
@@ -26,12 +27,12 @@
 (ds/defentity Activity [book user message date])
 ; }}}
 
-;; Ds-Util Test
+;; == Ds-Util Test ==
 (deftest test-entity? ; {{{
   (is (entity? (User. "a" "b" "c" "d" "e")))
   ) ; }}}
 
-;; Model Test
+;; == Model Test ==
 (deftest test-create-user ; {{{
   (create-user "aa" "")
   (is (= 1 (ds/query :kind "User" :count-only? true)))
@@ -260,37 +261,69 @@
     )
   ) ; }}}
 
-(defn body->json [res] (-> res :body json/read-json))
+;; == Controller Test ==
+(deftest test-controller-get-user-and-get-book ; {{{
+  (create-user "aa" "av")
+  (create-book "hoge" "hoge-a" "")
+  (are [x y z] (= x (-> z body->json y))
+    "av" :avatar (testGET "/user/aa")
+    nil :secret-mail (testGET "/user/aa")
+    nil identity (testGET "/user/unknown")
+    "hoge-a" :author (testGET "/book/hoge")
+    )
+  ) ; }}}
 
-(deftest test-controller
+(deftest test-controller-like-book ; {{{
   (let [user1 (create-user "aa" "av")
         user2 (create-user "bb" "bv")
+        user3 (create-user "cc" "cv")
         book1 (create-book "hoge" "hoge-a" "")
         book2 (create-book "fuga" "fuga-a" "")]
 
+    ; user1 -> book1 = 2 point
     (like-book book1 user1)
     (ds/save! (assoc (first (ds/query :kind LikeBook :filter [(= :book book1) (= :user user1)])) :point 2))
+    ; user1 -> book2 = 1 point
     (like-book book2 user1)
+    ; user2 -> book1 = 1 point
     (like-book book1 user2)
-
-    (is (= "hello" (:body (testGET "/echo/hello"))))
-
-    ; json response
-    (are [x y z] (= x (-> z body->json y))
-      "av" :avatar (testGET "/user/aa")
-      nil :secret-mail (testGET "/user/aa")
-      nil identity (testGET "/user/unknown")
-      "hoge-a" :author (testGET "/book/hoge")
-
-      (testGET "/like/book?user=aa")
-      )
+    ; user3 -> book2 = 1 point
+    (like-book book2 user3)
 
     (are [x y] (= x y)
       2 (count (body->json (testGET "/like/book?user=aa")))
-      2 (count (body->json (testGET "/like/book?user=aa%2Cbb")))
+      2 (count (body->json (testGET "/like/book?user=aa%2Cbb%2Ccc")))
+      1 (count (body->json (testGET "/like/book?user=aa%2Cbb%2Ccc&limit=1")))
+      3 (:point (first (body->json (testGET "/like/book?user=aa%2Cbb%2Ccc"))))
+      2 (:point (second (body->json (testGET "/like/book?user=aa%2Cbb%2Ccc"))))
 
-      3 (:point (first (body->json (testGET "/like/book?user=aa%2Cbb"))))
+      "hoge" (:title (ds/retrieve Book (str->key (:book (first (body->json (testGET "/like/book?user=aa%2Cbb%2Ccc")))))))
+      "fuga" (:title (ds/retrieve Book (str->key (:book (second (body->json (testGET "/like/book?user=aa%2Cbb%2Ccc")))))))
+
+      2 (count (body->json (testGET "/like/book?book=hoge")))
+      3 (count (body->json (testGET "/like/book?book=hoge%2Cfuga")))
+      1 (count (body->json (testGET "/like/book?book=hoge%2Cfuga&limit=1")))
+
+      3 (:point (first (body->json (testGET "/like/book?book=hoge%2Cfuga"))))
+      1 (:point (second (body->json (testGET "/like/book?book=hoge%2Cfuga"))))
+      "aa" (:name (ds/retrieve User (str->key (:user (first (body->json (testGET "/like/book?book=hoge%2Cfuga")))))))
       )
     )
-  )
+  ) ; }}}
 
+(deftest test-controller-like-user ; {{{
+  (let [user1 (create-user "aa" "")
+        user2 (create-user "bb" "")
+        user3 (create-user "cc" "")
+        user4 (create-user "dd" "")
+        ]
+
+    ; user2 -> user1 = 1 point
+    (user-like user1 user2)
+    (user-like user1 user3)
+    (user-like user1 user4)
+
+
+    ;(testGET "/like/user?")
+    )
+  ) ; }}}

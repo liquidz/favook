@@ -131,8 +131,7 @@
 
 (defn get-like-book-list [& {:keys [user book limit page], :or {limit *default-limit*, page 1}}]
   (let [offset (* limit (dec page))
-        fkey (if user :user :book)
-        fval (if user user book)]
+        [fkey fval] (if user [:user user] [:book book])]
     (if (or user book)
       (ds/query :kind LikeBook :filter (= fkey fval) :sort [[:point :desc]] :limit limit :offset offset)
       (ds/query :kind LikeBook :sort [[:point :desc]] :limit limit :offset offset)
@@ -157,8 +156,7 @@
 
 (defn get-like-user-list [& {:keys [to-user from-user limit page], :or {limit *default-limit*, page 1}}]
   (let [offset (* limit (dec page))
-        fkey (if to-user :to-user :from-user)
-        fval (if to-user to-user from-user)]
+        [fkey fval] (if to-user [:to-user to-user] [:from-user from-user])]
     (if (or to-user from-user)
       (ds/query :kind LikeUser :filter (= fkey fval) :sort [[:point :desc]] :limit limit :offset offset)
       (ds/query :kind LikeUser :sort [[:point :desc]] :limit limit :offset offset)
