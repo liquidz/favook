@@ -3,7 +3,10 @@
   (:require [clojure.contrib.string :as string]
      [clojure.contrib.json :as json]
      )
-  (:import [java.util TimeZone Calendar])
+  (:import
+     [java.util TimeZone Calendar]
+     [java.security MessageDigest]
+     )
   )
 
 (defmacro aif [expr then & [else]]
@@ -107,6 +110,22 @@
 (defn loggedin? [session] (:loggedin session))
 (defn login-name [session] (:name session))
 (defn login-avatar [session] (:avatar session))
+
+
+(defn bytes->hex-str [bytes]
+  (apply str (map #(string/tail 2 (str "0" (Integer/toHexString (bit-and 0xff %)))) bytes))
+  )
+(defn digest-hex [algorithm s]
+  (if-not (string/blank? s)
+    (-> (MessageDigest/getInstance algorithm) (.digest (.getBytes s)) bytes->hex-str)
+    )
+  )
+;(def str->md5 (partial digest-hex "MD5"))
+(def str->sha1 (partial digest-hex "SHA1"))
+
+(defn make-book-user-key [#^Book book, #^User user]
+  (str->sha1 (str (:title book) (:author book) (:isbn book) (:name user) (:avatar user)))
+  )
 
 (defn println* [& args]
   (apply println args)

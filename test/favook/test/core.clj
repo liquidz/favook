@@ -17,10 +17,10 @@
 ;; Entity Definitions {{{
 (ds/defentity User [^:key name avatar secret-mail point date])
 (ds/defentity Book [^:key title author isbn point])
-(ds/defentity LikeBook [book user point date])
+(ds/defentity LikeBook [^:key id book user point date])
 (ds/defentity LikeUser [to-user from-user point date])
-(ds/defentity Comment [book user text date])
-(ds/defentity Activity [book user message date])
+(ds/defentity Comment [^:key id book user text date])
+(ds/defentity Activity [^:key id book user message date])
 ; }}}
 
 (defn- foreach [f l] (doseq [x l] (f x)))
@@ -33,7 +33,10 @@
   )
 
 (defn- update-activity-date [b u d]
-  (ds/save! (assoc (first (ds/query :kind Activity :filter [(= :book b) (= :user u)])) :date d)))
+  (ds/save! (assoc
+              (ds/retrieve Activity (make-book-user-key b u))
+              ;(first (ds/query :kind Activity :filter [(= :book b) (= :user u)]))
+              :date d)))
 
 (defn- nth-book [el n]
   (let [book (:book (nth el n))]
@@ -101,6 +104,7 @@
 (deftest test-get-book-list ; {{{
   (let [user1 (create-user "aa" "") user2 (create-user "bb" "") user3 (create-user "cc" "")
         book1 (create-book "hoge" "" "") book2 (create-book "fuga" "" "") book3 (create-book "neko" "" "")]
+    ;add points
     (like-book book1 user1) (like-book book1 user2) (like-book book1 user3)
     (like-book book2 user1) (like-book book2 user2)
 
@@ -115,6 +119,16 @@
       2 (:point (first (get-book-list :limit 1 :page 2)))
       "neko" (:title (last (get-book-list)))
       0 (:point (last (get-book-list)))
+
+      false (:likeyet (first (get-book-list :user "aa")))
+      false (:likeyet (second (get-book-list :user "aa")))
+      true (:likeyet (nth (get-book-list :user "aa") 2))
+      false (:likeyet (first (get-book-list :user "bb")))
+      false (:likeyet (second (get-book-list :user "bb")))
+      true (:likeyet (nth (get-book-list :user "bb") 2))
+      false (:likeyet (first (get-book-list :user "cc")))
+      true (:likeyet (second (get-book-list :user "cc")))
+      true (:likeyet (nth (get-book-list :user "cc") 2))
       )
     )
   ) ; }}}
@@ -142,22 +156,33 @@
   ) ; }}}
 
 (deftest test-like-book ; {{{
-  (let [user1 (create-user "aa" "")
-        user2 (create-user "bb" "")
-        book (create-book "title" "" "")]
-    (ds/save! [user1 user2 book])
+  (let [user1 (create-user "aa" "") user2 (create-user "bb" "")
+        book1 (create-book "title" "" "") book2 (create-book "fuga" "" "")]
+    ;(ds/save! [user1 user2 book])
 
-    (like-book book user1)
+    (like-book book1 user1)
     (is (= 1 (ds/query :kind LikeBook :count-only? true)))
-    (like-book book user2)
+    (like-book book1 user2)
     (is (= 2 (ds/query :kind LikeBook :count-only? true)))
-    (like-book book user1)
+    (like-book book1 user1)
     (is (= 2 (ds/query :kind LikeBook :count-only? true)))
     (let [like (first (ds/query :kind LikeBook :filter (= :user user1)))]
       (is (= 1 (:point like)))
       (ds/save! (assoc like :date "1900-01-01"))
-      (like-book book user1)
+      (like-book book1 user1)
       (is (= 2 (:point (first (ds/query :kind LikeBook :filter (= :user user1))))))
+      )
+
+    (like-book book2 user1 :point 2)
+    (let [lb (ds/retrieve LikeBook (make-book-user-key book2 user1))]
+      (is (= 2 (:point (ds/retrieve LikeBook (make-book-user-key book2 user1)))))
+      (like-book book2 user1 :point 3)
+      (is (= 2 (:point (ds/retrieve LikeBook (make-book-user-key book2 user1)))))
+      (ds/save! (assoc (ds/retrieve LikeBook (make-book-user-key book2 user1)) :date (n-days-ago 1)))
+      (like-book book2 user1 :point 3)
+      (is (= 3 (:point (ds/retrieve LikeBook (make-book-user-key book2 user1)))))
+      (like-book book2 user1)
+      (is (= 3 (:point (ds/retrieve LikeBook (make-book-user-key book2 user1)))))
       )
     )
   ) ; }}}
