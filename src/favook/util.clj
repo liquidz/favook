@@ -1,5 +1,5 @@
 (ns favook.util
-  (:use ds-util)
+  (:use favook.constants ds-util)
   (:require [clojure.contrib.string :as string]
      [clojure.contrib.json :as json]
      )
@@ -61,7 +61,55 @@
 
 (def parse-int #(Integer/parseInt %))
 
+(defn aggregate-entity-points [group-keyword entity-list]
+  (sort
+    #(> (:point %1) (:point %2))
+    (map #(reduce (fn [res x] (assoc res :point (+ (:point res) (:point x)))) %)
+         (vals (group-by group-keyword entity-list))))
+  )
+
+(defn params->limit-and-page [params]
+  [(aif (:limit params) (parse-int it) *default-limit*)
+   (aif (:page params) (parse-int it) 1)])
+
+(defn take-if
+  ([f col] (filter f col))
+  ([n f col]
+   (loop [ls col, i 0, res ()]
+     (if (or (empty? ls) (= i n))
+       (reverse res)
+       (if (-> ls first f)
+         (recur (rest ls) (inc i) (cons (first ls) res))
+         (recur (rest ls) i res)
+         )
+       )
+     )
+   )
+  )
+
+
+(defn default-response [obj]
+  (if (map? obj) obj {:status 200 :headers {"Content-Type" "text/html"} :body obj})
+  )
+
+
+(defn with-session
+  ([session res m]
+   (assoc (default-response res) :session (conj (aif session it {}) m)))
+  ([res m] (with-session nil res m))
+  )
+
+(defn with-message
+  ([session res msg] (with-session session res {:message msg}))
+  ([res msg] (with-message nil res msg))
+  )
+
+(defn loggedin? [session] (:loggedin session))
+(defn login-name [session] (:name session))
+(defn login-avatar [session] (:avatar session))
+
 (defn println* [& args]
   (apply println args)
   (last args)
   )
+

@@ -4,6 +4,13 @@
 	<version>1</version>
 	<static-files>
 		<include path="/index.html" />
+		<include path="/admin/index.html" />
+        <include path="/favicon.ico" />
+        <include path="/css/**.css" />
+        <include path="/img/**.png" />
+        <include path="/img/**.jpg" />
+        <include path="/img/**.gif" />
+        <include path="/js/**.js" />
 	</static-files>
 	<resource-files/>
 

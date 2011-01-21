@@ -1,16 +1,12 @@
 (ns favook.model
   (:use
-     favook.util
+     [favook constants util]
      ds-util
      )
   (:require
      [appengine-magic.services.datastore :as ds]
      )
   )
-
-;; Constants
-(def *mail-domain* "@favook.appspotmail.com")
-(def *default-limit* 10)
 
 ;; Entity Definitions
 (ds/defentity User [^:key name avatar secret-mail point date])
@@ -83,8 +79,11 @@
   (ds/retrieve Book (if (or (string? arg) (key? arg)) arg title))
   )
 
-(defn get-book-list [& {:keys [limit page], :or {limit *default-limit*, page 1}}]
-  (ds/query :kind Book :sort [[:point :desc]] :limit limit :offset (* limit (dec page)))
+(defn get-book-list [& {:keys [limit page all?], :or {limit *default-limit*, page 1, all? false}}]
+  (if all?
+    (ds/query :kind Book :sort [[:point :desc]])
+    (ds/query :kind Book :sort [[:point :desc]] :limit limit :offset (* limit (dec page)))
+    )
   )
 
 (defn find-book [key val & {:keys [limit page], :or {limit *default-limit*, page 1}}]
@@ -99,18 +98,29 @@
 ;; Activity
 (defn create-activity [#^Book book, #^User user, message]
   (ds/save! (Activity. book user message (now))))
-(def get-activity-list (partial get-entity-list Activity))
+(defn get-activity-list [& {:keys [book user message limit page], :or {limit *default-limit*, page 1}}]
+  (let [[key val] (if book [:book book] (if user [:user user]))
+        offset (* limit (dec page))]
+    (if message
+      (ds/query :kind Activity :filter [(= key val) (= :message message)] :sort [[:date :desc]] :limit limit :offset offset)
+      (ds/query :kind Activity :filter (= key val) :sort [[:date :desc]] :limit limit :offset offset)
+      )
+    )
+  )
+;(def get-activity-list (partial get-entity-list Activity))
 
-(defn aggregate-activity [message days]
+(defn aggregate-activity [message group-keyword days]
   (let [day-range (n-days-ago (dec days))]
-    (->>
-      (ds/query :kind Activity :filter (= :message message))
-      (filter #(str-comp >= (time->day (:date %)) day-range))
-      (group-by :book)
-      vals
-      (map #(assoc (first %) :point (count %)))
-      (sort #(> (:point %1) (:point %2)))
-      (map #(dissoc % :date))
+    (when (or (= group-keyword :user) (= group-keyword :book))
+      (->>
+        (ds/query :kind Activity :filter (= :message message))
+        (filter #(str-comp >= (time->day (:date %)) day-range))
+        (group-by group-keyword)
+        vals
+        (map #(assoc (first %) :point (count %)))
+        (sort #(> (:point %1) (:point %2)))
+        (map #(dissoc % :date))
+        )
       )
     )
   )
