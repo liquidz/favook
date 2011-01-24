@@ -127,6 +127,10 @@
   (str->sha1 (str (:title book) (:author book) (:isbn book) (:name user) (:avatar user)))
   )
 
+(defn make-user-user-key [#^User user1, #^User user2]
+  (str->sha1 (str (:name user1) (:avatar user1) (:name user2) (:avatar user2)))
+  )
+
 (defn println* [& args]
   (apply println args)
   (last args)

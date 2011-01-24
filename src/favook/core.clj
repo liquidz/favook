@@ -124,9 +124,10 @@
 (def like-book-history-controller (partial get-activity-history "like"))
 (def history-comment-controller (partial get-activity-list "comment")) ; }}}
 
-(defn like-book-controller [{book-key :book, :as params} session]
+(defn like-book-controller [{:keys [book point], :or {point "1"}} session]
   (when (loggedin? session)
-    (like-book (get-book (str->key book-key)) (get-user (login-name session)))
+    (like-book (get-book (str->key book)) (get-user (login-name session))
+               :point (parse-int point))
     )
   )
 

@@ -18,7 +18,7 @@
 (ds/defentity User [^:key name avatar secret-mail point date])
 (ds/defentity Book [^:key title author isbn point])
 (ds/defentity LikeBook [^:key id book user point date])
-(ds/defentity LikeUser [to-user from-user point date])
+(ds/defentity LikeUser [^:key id to-user from-user point date])
 (ds/defentity Comment [^:key id book user text date])
 (ds/defentity Activity [^:key id book user message date])
 ; }}}
@@ -33,10 +33,7 @@
   )
 
 (defn- update-activity-date [b u d]
-  (ds/save! (assoc
-              (ds/retrieve Activity (make-book-user-key b u))
-              ;(first (ds/query :kind Activity :filter [(= :book b) (= :user u)]))
-              :date d)))
+  (ds/save! (assoc (ds/retrieve Activity (make-book-user-key b u)) :date d)))
 
 (defn- nth-book [el n]
   (let [book (:book (nth el n))]
@@ -95,10 +92,22 @@
   ) ; }}}
 
 (deftest test-get-book ; {{{
-  (create-book "title" "" "")
-  (is (= "title" (:title (get-book "title"))))
-  (is (= "title" (:title (get-book {:title "title"}))))
-  (is (nil? (get-book "unknown")))
+  (let [book (create-book "title" "" "")
+        user (create-user "aa" "")]
+
+    (are [x y] (= x y)
+      "title" (:title (get-book "title"))
+      "title" (:title (get-book {:title "title"}))
+      nil (get-book "unknown")
+      )
+
+    (like-book book user)
+    (ds/save! (assoc (get-like-book book user) :date (n-days-ago 1)))
+    (are [x y] (= x y)
+      false (:likeyet (get-book {:title "title" :user "aa"}))
+      true  (:canlike (get-book {:title "title" :user "aa"}))
+      )
+    )
   ) ; }}}
 
 (deftest test-get-book-list ; {{{
@@ -107,6 +116,7 @@
     ;add points
     (like-book book1 user1) (like-book book1 user2) (like-book book1 user3)
     (like-book book2 user1) (like-book book2 user2)
+    (ds/save! (assoc (get-like-book book1 user1) :date (n-days-ago 1)))
 
     (are [x y] (= x y)
       3 (count (get-book-list))
@@ -122,13 +132,17 @@
 
       false (:likeyet (first (get-book-list :user "aa")))
       false (:likeyet (second (get-book-list :user "aa")))
-      true (:likeyet (nth (get-book-list :user "aa") 2))
+      true  (:likeyet (nth (get-book-list :user "aa") 2))
       false (:likeyet (first (get-book-list :user "bb")))
       false (:likeyet (second (get-book-list :user "bb")))
-      true (:likeyet (nth (get-book-list :user "bb") 2))
+      true  (:likeyet (nth (get-book-list :user "bb") 2))
       false (:likeyet (first (get-book-list :user "cc")))
-      true (:likeyet (second (get-book-list :user "cc")))
-      true (:likeyet (nth (get-book-list :user "cc") 2))
+      true  (:likeyet (second (get-book-list :user "cc")))
+      true  (:likeyet (nth (get-book-list :user "cc") 2))
+
+      true  (:canlike (first (get-book-list :user "aa")))
+      false (:canlike (second (get-book-list :user "aa")))
+      true  (:canlike (nth (get-book-list :user "aa") 2))
       )
     )
   ) ; }}}
@@ -187,12 +201,36 @@
     )
   ) ; }}}
 
+(deftest test-get-like-book ; {{{
+  (let [user1 (create-user "aa" "") user2 (create-user "bb" "")
+        book1 (create-book "hoge" "" "")
+        key1 (make-book-user-key book1 user1)
+        key2 (make-book-user-key book1 user2)]
+    (like-book book1 user1)
+    (ds/save! (assoc (first (ds/query :kind LikeBook :filter [(= :book book1) (= :user user1)])) :date (n-days-ago 1)))
+
+    (are [x y] (= x y)
+      false (nil? (get-like-book book1 user1))
+      nil (get-like-book book1 user2)
+      false (nil? (get-like-book key1))
+      nil (get-like-book key2)
+      "hoge" (:title (ds/retrieve Book (:book (get-like-book book1 user1))))
+      "aa" (:name (ds/retrieve User (:user (get-like-book book1 user1))))
+
+      false (:likeyet (get-like-book book1 user1))
+      true (:canlike (get-like-book book1 user1))
+      nil (:likeyet (get-like-book book1 user2))
+      nil (:canlike (get-like-book book1 user2))
+      )
+    )
+  ) ; }}}
+
 (deftest test-get-like-book-list ; {{{
   (let [user1 (create-user "aa" "") user2 (create-user "bb" "") user3 (create-user "cc" "")
         book1 (create-book "hoge" "" "") book2 (create-book "fuga" "" "") book3 (create-book "neko" "" "")]
     (like-book book1 user1) (like-book book2 user1) (like-book book3 user1)
-    (ds/save! (assoc (first (ds/query :kind LikeBook :filter [(= :user user1) (= :book book3)])) :point 3))
-    (ds/save! (assoc (first (ds/query :kind LikeBook :filter [(= :user user1) (= :book book2)])) :point 2))
+    (ds/save! (assoc (get-like-book book3 user1) :point 3 :date (n-days-ago 1)))
+    (ds/save! (assoc (get-like-book book2 user1) :point 2))
     (like-book book1 user2) (like-book book3 user2)
 
     (are [x y] (= x y)
@@ -206,11 +244,17 @@
       "neko" (:title (ds/retrieve Book (:book (first (get-like-book-list :user user1 :limit 1)))))
       "fuga" (:title (ds/retrieve Book (:book (first (get-like-book-list :user user1 :limit 1 :page 2)))))
 
-
       2 (count (get-like-book-list :book book1))
       1 (count (get-like-book-list :book book1 :limit 1))
       1 (count (get-like-book-list :book book2))
       "aa" (:name (ds/retrieve User (:user (first (get-like-book-list :book book2)))))
+
+      false (:likeyet (first (get-like-book-list :user user1)))
+      true (:canlike (first (get-like-book-list :user user1)))
+      false (:likeyet (second (get-like-book-list :user user1)))
+      false (:canlike (second (get-like-book-list :user user1)))
+      false (:likeyet (second (get-like-book-list :user user2)))
+      false (:canlike (second (get-like-book-list :user user2)))
       )
     )
   ) ; }}}
@@ -234,14 +278,33 @@
     )
   ) ; }}}
 
+(deftest test-get-like-user ; {{{
+  (let [user1 (create-user "aa" "")
+        user2 (create-user "bb" "")
+        user3 (create-user "cc" "")
+        key1 (make-user-user-key user1 user2)
+        key2 (make-user-user-key user1 user3)
+        ]
+    (like-user user1 user2)
+
+    (are [x y] (= x y)
+      false (nil? (get-like-user user1 user2))
+      nil (get-like-user user1 user3)
+      false (nil? (get-like-user key1))
+      nil (get-like-user key2)
+      )
+    )
+  ) ; }}}
+
 (deftest test-get-like-user-list ; {{{
   (let [user1 (create-user "aa" "")
         user2 (create-user "bb" "")
         user3 (create-user "cc" "")
         ]
     (like-user user2 user1)
-    (ds/save! (assoc (first (ds/query :kind LikeUser :filter [(= :to-user user2) (= :from-user user1)])) :point 2))
+    (ds/save! (assoc (get-like-user user2 user1) :point 3))
     (like-user user3 user1)
+    (ds/save! (assoc (get-like-user user3 user1) :point 2))
     (like-user user3 user2)
 
     (are [x y] (= x y)
@@ -250,7 +313,7 @@
 
       2 (count (get-like-user-list :from-user user1))
       1 (count (get-like-user-list :from-user user1 :limit 1))
-      2 (:point (first (get-like-user-list :from-user user1)))
+      3 (:point (first (get-like-user-list :from-user user1)))
       "bb" (:name (ds/retrieve User (:to-user (first (get-like-user-list :from-user user1)))))
 
       2 (count (get-like-user-list :to-user user3))
@@ -263,7 +326,7 @@
 (deftest test-get-activity-list ; {{{
   (let [user (create-user "aa" "") book1 (create-book "title" "" "") book2 (create-book "hoge" "" "")]
     (like-book book1 user) (create-comment book2 user "hello")
-    (ds/save! (assoc (first (ds/query :kind Activity :filter [(= :user user) (= :book book1)])) :date "1900-01-01"))
+    (ds/save! (assoc (get-activity book1 user) :date "1900-01-01"))
 
     (are [x y] (= x y)
       2 (count (get-activity-list :user user))
@@ -342,7 +405,7 @@
 
     ; user1 -> book1 = 2 point
     (like-book book1 user1)
-    (ds/save! (assoc (first (ds/query :kind LikeBook :filter [(= :book book1) (= :user user1)])) :point 2))
+    (ds/save! (assoc (get-like-book book1 user1) :point 2))
     ; user1 -> book2 = 1 point
     (like-book book2 user1)
     ; user2 -> book1 = 1 point
@@ -423,7 +486,7 @@
     )
   ) ; }}}
 
-(deftest test-controller-point-comment
+(deftest test-controller-point-comment ; {{{
   (let [base "/point/comment?"
         user1 (create-user "aa" "") user2 (create-user "bb" "")
         user3 (create-user "cc" "") user4 (create-user "dd" "")
@@ -466,9 +529,9 @@
       1 (:point (nth (body->json (testGET base "type=user&day=3")) 2))
       )
     )
-  )
+  ) ; }}}
 
-(deftest test-controller-search
+(deftest test-controller-search ; {{{
   (let [base "/search?"
         set-point (fn [key point] (ds/save! (assoc (ds/retrieve Book key) :point point)))]
     (create-book "hoge" "hoau" "123") (set-point "hoge" 1)
@@ -491,9 +554,9 @@
       "neko" (:title (first (body->json (testGET base "keyword=au&limit=1&page=2"))))
       )
     )
-  )
+  ) ; }}}
 
-(deftest test-controller-like-book-history
+(deftest test-controller-like-book-history ; {{{
   (let [base "/like/book/history?"
         user1 (create-user "aa" "") user2 (create-user "bb" "")
         book1 (create-book "hoge" "" "") book2 (create-book "fuga" "" "")
@@ -516,18 +579,18 @@
       "fuga" (:title (nth-book (body->json (testGET base "name=aa%2Cbb&limit=1&page=3")) 0))
       )
     )
-  )
+  ) ; }}}
 
-(deftest test-controller-parts-message
+(deftest test-controller-parts-message ; {{{
   (let [res (testGET "/admin/message/hello")]
     (are [x y] (= x y)
       "hello" (body->json (testGET-with-session res "/parts/message"))
       "" (body->json (testGET-with-session res "/parts/message"))
       )
     )
-  )
+  ) ; }}}
 
-(deftest test-controller-parts-login
+(deftest test-controller-parts-login ; {{{
   (let [base "/parts/login"
         res (testGET "/admin/login/hoge")
         data (body->json (testGET-with-session res base))]
@@ -557,25 +620,38 @@
         )
       )
     )
-  )
+  ) ; }}}
 
-(deftest test-controller-like-book
+(deftest test-controller-like-book ; {{{
   (create-user "test" "")
   (let [base "/like/book?"
         key-str (-> (create-book "hoge" "fuga" "12345") ds/get-key-object key->str)
+        key-str2 (-> (create-book "neko" "inu" "67890") ds/get-key-object key->str)
         res (testGET "/admin/login/test")
-        data (body->json (testGET-with-session res base "book=" key-str))
-        data2 (body->json (testGET-with-session res base "book=" key-str)) ]
+        ;data (body->json (testGET-with-session res base "book=" key-str))
+        ;data2 (body->json (testGET-with-session res base "book=" key-str))
+        ]
+
+    (testGET-with-session res base "book=" key-str)
+    (testGET-with-session res base "book=" key-str)
+    (testGET-with-session res base "book=" key-str2 "&point=2")
+    (testGET-with-session res base "book=" key-str2 "&point=2")
 
     (are [x y] (= x y)
-      1 (count (get-like-book-list))
+      2 (count (get-like-book-list))
       true (today? (:date (first (get-like-book-list))))
 
-      "hoge" (:title (nth-book (get-like-book-list) 0))
-      "fuga" (:author (nth-book (get-like-book-list) 0))
-      "12345" (:isbn (nth-book (get-like-book-list) 0))
+      2 (:point (first (get-like-book-list)))
+      "neko" (:title (nth-book (get-like-book-list) 0))
+      "inu" (:author (nth-book (get-like-book-list) 0))
+      "67890" (:isbn (nth-book (get-like-book-list) 0))
+
+      1 (:point (second (get-like-book-list)))
+      "hoge" (:title (nth-book (get-like-book-list) 1))
+      "fuga" (:author (nth-book (get-like-book-list) 1))
+      "12345" (:isbn (nth-book (get-like-book-list) 1))
       )
     )
-  )
+  ) ; }}}
 
 
