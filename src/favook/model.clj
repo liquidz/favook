@@ -6,11 +6,51 @@
   (:require
      [appengine-magic.services.datastore :as ds]
      )
+
+  ;;rakuten
+  (:require
+     [clojure.contrib.json :as json]
+     [clojure.contrib.io :as io])
   )
+
+; rakuten {{{
+(def *rakuten-developer-id* nil)
+(def *rakuten-affiliate-id* nil)
+(def *api-urls*
+  {"2009-03-26" "http://api.rakuten.co.jp/rws/2.0/json?"
+   "2009-04-15" "http://api.rakuten.co.jp/rws/2.0/json?"
+   "2010-03-18" "http://api.rakuten.co.jp/rws/3.0/json?"})
+(def *version* "2010-03-18")
+(def *operation* "BooksBookSearch")
+
+(defmacro with-developer-id [dev-id & body]
+  `(binding [*rakuten-developer-id* ~dev-id] ~@body))
+(defmacro with-version [version & body]
+  `(binding [*version* ~version] ~@body))
+(defmacro with-affiliate-id [aff-id & body]
+  `(binding [*rakuten-affiliate-id* ~aff-id] ~@body))
+
+(defn- map->url-parameters [m]
+  (apply str (interpose "&" (map (fn [[k v]] (str (name k) "=" v)) m)))
+  )
+
+(defn- make-url [m]
+  (let [data (assoc m :developerId *rakuten-developer-id* :operation *operation* :version *version*)
+        data2 (if (nil? *rakuten-affiliate-id*) data (assoc data :affiliateId *rakuten-affiliate-id*))
+        ]
+    (str (get *api-urls* *version*) (map->url-parameters data2))
+    )
+  )
+
+(defn rakuten-book-search [& {:as m}]
+  (json/read-json (apply str (io/read-lines (make-url m))))
+  )
+; }}}
+
 
 ;; Entity Definitions
 (ds/defentity User [^:key name avatar secret-mail point date])
-(ds/defentity Book [^:key title author isbn point])
+(ds/defentity Book [^:key title author isbn thumbnail point])
 (ds/defentity LikeBook [^:key id book user point date])
 (ds/defentity LikeUser [^:key id to-user from-user point date])
 (ds/defentity Comment [^:key id book user text date])
@@ -50,6 +90,27 @@
     )
   )
 
+(defn fill-book-info [{:keys [title author isbn], :as book}]
+  (let [bookdata (if (string/blank? isbn)
+                     (rakuten-book-search :title title :author author)
+                     (rakuten-book-search :isbn isbn))
+        info (-> bookdata :Body :BooksBookSearch)
+        one? (= 1 (:count info))
+        first-item (if one? (-> info :Items :Item first))
+        filled-title (if (and fill? one? (string/blank title))
+                       (:title first-item) title)
+        filled-author (if (and fill? one? (string/blank author))
+                        (:author first-item) author)
+        thunbnail (if (and fill? one?)
+                    {:small (:smallImageUrl first-item)
+                     :medium (:mediumImageUrl first-item)
+                     :large (:largeImageUrl first-item)})
+        filled-isbn (if (and fill? one? (string/blank? isbn))
+                      (:isbn first-item) isbn)]
+    (assoc book :title filled-title :author filled-author :isbn filled-isbn :thumbnail thumbnail)
+    )
+  )
+
 ; }}}
 
 ;; User
@@ -75,11 +136,13 @@
   )
 
 ;; Book
-(defn create-book [title author isbn]
+(defn create-book [title author isbn & {:keys [fill?] :or {fill? false}}]
   (aif (ds/retrieve Book title) it
-       (let [book (Book. title author isbn 0)]
-         (ds/save! book)
-         book
+       (let [book (Book. title author isbn nil 0)
+             filled-book (if fill? (fill-book-info book) book)
+             ]
+         (ds/save! filled-book)
+         filled-book
          )
        )
   )
