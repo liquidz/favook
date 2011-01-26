@@ -9,6 +9,7 @@
      [appengine-magic.testing :as ae-testing]
      [appengine-magic.services.datastore :as ds]
      [clojure.contrib.json :as json]
+     [clojure.contrib.string :as string]
      )
   )
 
@@ -16,7 +17,7 @@
 
 ;; Entity Definitions {{{
 (ds/defentity User [^:key name avatar secret-mail point date])
-(ds/defentity Book [^:key title author isbn point])
+(ds/defentity Book [^:key title author isbn thumbnail point])
 (ds/defentity LikeBook [^:key id book user point date])
 (ds/defentity LikeUser [^:key id to-user from-user point date])
 (ds/defentity Comment [^:key id book user text date])
@@ -90,6 +91,28 @@
     (is (not= old-mail (:secret-mail (ds/retrieve User "aa"))))
     )
   ) ; }}}
+
+(deftest test-create-book
+  (let [book1 (create-book "aa" "bb" "cc")
+        book2 (create-book nil nil "4001156768" :fill? true)]
+    (are [x y] (= x y)
+      nil (create-book nil nil nil)
+      "aa" (:title book1)
+      "bb" (:author book1)
+      "cc" (:isbn book1)
+      nil (:thumbnail book1)
+      0 (:point book1)
+
+      false (string/blank? (:title book2))
+      false (string/blank? (:author book2))
+      false (nil? (:thumbnail book2))
+      false (string/blank? (nth (:thumbnail book2) 0))
+      false (string/blank? (nth (:thumbnail book2) 1))
+      false (string/blank? (nth (:thumbnail book2) 2))
+      0 (:point book2)
+      )
+    )
+  )
 
 (deftest test-get-book ; {{{
   (let [book (create-book "title" "" "")

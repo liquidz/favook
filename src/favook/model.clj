@@ -5,6 +5,8 @@
      )
   (:require
      [appengine-magic.services.datastore :as ds]
+     [clojure.contrib.string :as string]
+     key
      )
 
   ;;rakuten
@@ -23,7 +25,7 @@
 (def *version* "2010-03-18")
 (def *operation* "BooksBookSearch")
 
-(defmacro with-developer-id [dev-id & body]
+(defmacro with-rakuten-developer-id [dev-id & body]
   `(binding [*rakuten-developer-id* ~dev-id] ~@body))
 (defmacro with-version [version & body]
   `(binding [*version* ~version] ~@body))
@@ -91,23 +93,27 @@
   )
 
 (defn fill-book-info [{:keys [title author isbn], :as book}]
-  (let [bookdata (if (string/blank? isbn)
+  (with-rakuten-developer-id
+    key/*rakuten-developer-id*
+    (let [bookdata (if (string/blank? isbn)
                      (rakuten-book-search :title title :author author)
                      (rakuten-book-search :isbn isbn))
-        info (-> bookdata :Body :BooksBookSearch)
-        one? (= 1 (:count info))
-        first-item (if one? (-> info :Items :Item first))
-        filled-title (if (and fill? one? (string/blank title))
-                       (:title first-item) title)
-        filled-author (if (and fill? one? (string/blank author))
-                        (:author first-item) author)
-        thunbnail (if (and fill? one?)
-                    {:small (:smallImageUrl first-item)
-                     :medium (:mediumImageUrl first-item)
-                     :large (:largeImageUrl first-item)})
-        filled-isbn (if (and fill? one? (string/blank? isbn))
-                      (:isbn first-item) isbn)]
-    (assoc book :title filled-title :author filled-author :isbn filled-isbn :thumbnail thumbnail)
+          info (-> bookdata :Body :BooksBookSearch)
+          one? (= 1 (:count info))
+          first-item (if one? (-> info :Items :Item first))
+          filled-title (if (and one? (or (string/blank? title) (= title *dummy-title*)))
+                         (:title first-item) title)
+          filled-author (if (and one? (string/blank? author))
+                          (:author first-item) author)
+          thumbnail (if one?
+                      [(:smallImageUrl first-item)
+                       (:mediumImageUrl first-item)
+                       (:largeImageUrl first-item)])
+          filled-isbn (if (and one? (string/blank? isbn))
+                        (:isbn first-item) isbn)]
+
+      (assoc book :title filled-title :author filled-author :isbn filled-isbn :thumbnail thumbnail)
+      )
     )
   )
 
@@ -136,15 +142,20 @@
   )
 
 ;; Book
-(defn create-book [title author isbn & {:keys [fill?] :or {fill? false}}]
-  (aif (ds/retrieve Book title) it
-       (let [book (Book. title author isbn nil 0)
-             filled-book (if fill? (fill-book-info book) book)
-             ]
-         (ds/save! filled-book)
-         filled-book
-         )
-       )
+(defn create-book [title author isbn & {:keys [fill?] :or {title *dummy-title* *fill? false}}]
+  (when (or (not (string/blank? title))
+            (and (string/blank? title) (not (string/blank? isbn)) fill?))
+    (let [title* (if (nil? title) *dummy-title* title)]
+      (aif (ds/retrieve Book title*) it
+           (let [book (Book. title* author isbn nil 0)
+                 filled-book (if fill? (fill-book-info book) book)
+                 ]
+             (ds/save! filled-book)
+             filled-book
+             )
+           )
+      )
+    )
   )
 
 (defn get-book [{:keys [title user], :as arg}]

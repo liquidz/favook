@@ -11,6 +11,8 @@
      [appengine-magic.services.datastore :as ds]
      [ring.middleware.session :as session]
      [clojure.contrib.string :as string]
+
+     [appengine-magic.services.url-fetch :as uf]
      )
   )
 
@@ -170,8 +172,14 @@
   )
 
 (defroutes not-found-route
+  (GET "/test" req
+    (println req)
+    "test route"
+    )
+
   (not-found "page not found")
   )
+
 
 (defroutes favook-app-handler
   api-handler

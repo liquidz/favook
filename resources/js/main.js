@@ -26,4 +26,10 @@ $(function(){
 			e.append("<img src='"+img+"' />");
 		}
 	});
+
+	$("#test").bind("click", function(){
+		$.get("/test", function(res){
+			console.log("res = " + res);
+		});
+	});
 });
