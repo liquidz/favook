@@ -27,7 +27,16 @@
 (defmacro apiGET [path fn] `(jsonGET ~path {params# :params} (~fn (convert-map params#))))
 (defmacro apiGET-with-session [path fn] `(jsonGET ~path {params# :params, session# :session}
                                                   (~fn (convert-map params#) session#)))
+(defmacro apiPOST [path fn] `(jsonPOST ~path {params# :params} (~fn (convert-map params#))))
+(defmacro apiPOST-with-session [path fn] `(jsonPOST ~path {params# :params, session# :session}
+                                                  (~fn (convert-map params#) session#)))
 ; }}}
+
+(defn init-guest-user []
+  (if (nil? (get-user *guest-name*))
+    (create-user *guest-name* *guest-avatar* :guest? true)
+    )
+  )
 
 (defn login [name avatar session]
   (let [user (aif (get-user name) it (create-user name avatar))]
@@ -126,12 +135,53 @@
 (def like-book-history-controller (partial get-activity-history "like"))
 (def history-comment-controller (partial get-activity-list "comment")) ; }}}
 
+(defn like-book-new-controller [{:keys [title author isbn]
+                                 :or {title nil, author nil, isbn nil}
+                                 :as params} session #^User user]
+  (let [book (create-book title author isbn :fill? true)]
+    (if (nil? book)
+      (with-message session (redirect "/") "posted data is incorrect")
+      (when (loggedin? session)
+        (like-book book user)
+        (redirect "/")
+        )
+      )
+    )
+  )
+
+(defn like-book-new-from-mail-controller [{:keys [subject from to body]}]
+  (let [user (get-user-from-mail to)]
+    (when-not (nil? user)
+      (let [isbn-flag (isbn? subject)
+            title (if-not isbn-flag subject)
+            isbn (if isbn-flag subject)
+            book (create-book title nil isbn :fill? true)
+            ]
+        (if (nil? book)
+          "" ; (send-error-mail from "posted data is incorrect")
+          (like-book book user)
+          )
+        )
+      )
+    )
+  )
+
 (defn like-book-controller [{:keys [book point], :or {point "1"}} session]
   (when (loggedin? session)
     (like-book (get-book (str->key book)) (get-user (login-name session))
                :point (parse-int point))
     )
   )
+
+(defn post-comment-controller [{:keys [book text] :as params} session]
+  (init-guest-user)
+  (let [book-entity (get-book (str->key book))
+        user (if (loggedin? session) (get-user (:name session)) (get-user *guest-name*))
+        ]
+    (create-comment book-entity user text)
+    )
+  )
+
 
 (defroutes api-handler
   (apiGET "/user/:name" get-user)
@@ -151,7 +201,11 @@
   (apiGET-with-session "/like/book" like-book-controller)
 
   (jsonGET "/parts/message" {session :session} (with-message session (:message session) ""))
-  (jsonGET "/parts/login" {session :session} (if (loggedin? session) session {:loggedin false}))
+  (jsonGET "/parts/login" {session :session} (if (loggedin? session)
+                                               (dissoc session :user)
+                                               {:loggedin false}))
+
+  (apiPOST-with-session "/post/comment" post-comment-controller)
 
   )
 
@@ -160,6 +214,17 @@
     (with-message session (redirect "/") "login mada")
     )
   (GET "/logout" _ (with-message (redirect "/") "logged out"))
+
+  (POST "/like/book/new" {params :params, session :session}
+    (like-book-new-controller
+      (convert-map params)
+      session
+      (if (loggedin? session) (get-user (:name session)) (get-user *guest-name*))
+      )
+    )
+
+  (POST "/_ah/mail/*" {params :params} (like-book-new-from-mail-controller (convert-map params)) "")
+
   )
 
 
@@ -188,6 +253,6 @@
   not-found-route
   )
 
+;(init-guest-user)
 (wrap! favook-app-handler session/wrap-session)
-
 (ae/def-appengine-app favook-app #'favook-app-handler)

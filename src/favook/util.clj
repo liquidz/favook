@@ -2,6 +2,7 @@
   (:use favook.constants ds-util)
   (:require [clojure.contrib.string :as string]
      [clojure.contrib.json :as json]
+     [appengine-magic.services.datastore :as ds]
      )
   (:import
      [java.util TimeZone Calendar]
@@ -111,6 +112,14 @@
 (defn login-name [session] (:name session))
 (defn login-avatar [session] (:avatar session))
 
+(defn guest? [user]
+  (and
+    (= *guest-name* (:name user))
+    (= *guest-avatar* (:avatar user))
+    (nil? (:secret-mail user))
+    )
+  )
+
 
 (defn bytes->hex-str [bytes]
   (apply str (map #(string/tail 2 (str "0" (Integer/toHexString (bit-and 0xff %)))) bytes))
@@ -136,3 +145,10 @@
   (last args)
   )
 
+(defn isbn? [s]
+  (let [s* (string/replace-str "-" "" s)]
+    (and (not (nil? (re-matches #"[0-9]+" s*)))
+         (or (= 10 (count s*)) (= 13 (count s*)))
+         )
+    )
+  )

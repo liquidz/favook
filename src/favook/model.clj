@@ -83,11 +83,14 @@
 
 (defn- add-like-data [#^Book book, #^User user]
   (when-not (or (nil? book) (nil? user))
-    (let [like-book-entity (get-like-book book user)]
-      (assoc book
-             :likeyet (nil? like-book-entity)
-             :canlike (or (nil? like-book-entity) (-> like-book-entity :date today? not))
-             )
+    (if (guest? user)
+      (assoc book :likeyet true :canlike false)
+      (let [like-book-entity (get-like-book book user)]
+        (assoc book
+               :likeyet (nil? like-book-entity)
+               :canlike (or (nil? like-book-entity) (-> like-book-entity :date today? not))
+               )
+        )
       )
     )
   )
@@ -97,22 +100,25 @@
     key/*rakuten-developer-id*
     (let [bookdata (if (string/blank? isbn)
                      (rakuten-book-search :title title :author author)
-                     (rakuten-book-search :isbn isbn))
-          info (-> bookdata :Body :BooksBookSearch)
-          one? (= 1 (:count info))
-          first-item (if one? (-> info :Items :Item first))
-          filled-title (if (and one? (or (string/blank? title) (= title *dummy-title*)))
-                         (:title first-item) title)
-          filled-author (if (and one? (string/blank? author))
-                          (:author first-item) author)
-          thumbnail (if one?
-                      [(:smallImageUrl first-item)
-                       (:mediumImageUrl first-item)
-                       (:largeImageUrl first-item)])
-          filled-isbn (if (and one? (string/blank? isbn))
-                        (:isbn first-item) isbn)]
+                     (rakuten-book-search :isbn isbn))]
+      (when-not (= "NotFound" (-> bookdata :Header :Status))
+        (let [info (-> bookdata :Body :BooksBookSearch)
+              one? (= 1 (:count info))
+              first-item (if one? (-> info :Items :Item first))
+              filled-title (if (and one? (or (string/blank? title) (= title *dummy-title*)))
+                             (:title first-item) title)
+              filled-author (if (and one? (string/blank? author))
+                              (:author first-item) author)
+              thumbnail (if one?
+                          [(:smallImageUrl first-item)
+                           (:mediumImageUrl first-item)
+                           (:largeImageUrl first-item)])
+              filled-isbn (if (and one? (string/blank? isbn))
+                            (:isbn first-item) isbn)]
 
-      (assoc book :title filled-title :author filled-author :isbn filled-isbn :thumbnail thumbnail)
+          (assoc book :title filled-title :author filled-author :isbn filled-isbn :thumbnail thumbnail)
+          )
+        )
       )
     )
   )
@@ -120,9 +126,9 @@
 ; }}}
 
 ;; User
-(defn create-user [name avatar]
+(defn create-user [name avatar & {:keys [guest?] :or {guest? false}}]
   (aif (ds/retrieve User name) it
-       (let [user (User. name avatar (new-secret-mailaddress) 0 (now))]
+       (let [user (User. name avatar (if guest? nil (new-secret-mailaddress)) 0 (now))]
          (ds/save! user)
          user
          )
@@ -135,6 +141,10 @@
 
 (defn get-user [{name :name, :as arg}]
   (ds/retrieve User (if (or (string? arg) (key? arg)) arg name))
+  )
+
+(defn get-user-from-mail [mail]
+  (first (ds/query :kind User :filter (= :secret-mail mail) :limit 1))
   )
 
 (defn get-user-list [& {:keys [limit page], :or {limit *default-limit*, page 1}}]
@@ -150,7 +160,7 @@
            (let [book (Book. title* author isbn nil 0)
                  filled-book (if fill? (fill-book-info book) book)
                  ]
-             (ds/save! filled-book)
+             (if-not (nil? filled-book) (ds/save! filled-book))
              filled-book
              )
            )
@@ -183,7 +193,9 @@
 (defn find-book [key val & {:keys [limit page], :or {limit *default-limit*, page 1}}]
   (let [all-books (ds/query :kind Book :sort [[:point :desc]])
         offset (* limit (dec page))]
-    (take limit (drop offset (filter #(not= -1 (.indexOf (key %) val)) all-books)))
+    (take limit (drop offset (filter #(and
+                                        (not (nil? (key %)))
+                                        (not= -1 (.indexOf (key %) val))) all-books)))
     )
   )
 
@@ -300,6 +312,17 @@
 
 ;; Comment
 (defn create-comment [#^Book book, #^User user, text]
-  (ds/save! (Comment. (make-book-user-key book user) book user text (now)))
-  (create-activity book user "comment"))
+  (let [comment (Comment. (make-book-user-key book user) book user text (now))]
+    (ds/save! comment)
+    (create-activity book user "comment")
+
+    ;(println (type (:user comment)) (entity? (:user comment)))
+
+    comment
+    )
+  )
 (def get-comment-list (partial get-entity-list Comment))
+
+
+
+

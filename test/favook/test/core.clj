@@ -32,6 +32,13 @@
     (favook-app-handler (header (request :get (apply str urls)) "Cookie" ring-session))
     )
   )
+(defn- testPOST [data & urls]
+  (favook-app-handler (body (request :post (apply str urls)) data)))
+(defn- testPOST-with-session [res data & urls]
+  (let [ring-session (first (get (:headers res) "Set-Cookie"))]
+    (favook-app-handler (header (body (request :post (apply str urls)) data) "Cookie" ring-session))
+    )
+  )
 
 (defn- update-activity-date [b u d]
   (ds/save! (assoc (ds/retrieve Activity (make-book-user-key b u)) :date d)))
@@ -94,7 +101,9 @@
 
 (deftest test-create-book
   (let [book1 (create-book "aa" "bb" "cc")
-        book2 (create-book nil nil "4001156768" :fill? true)]
+        book2 (create-book nil nil "4001156768" :fill? true)
+        book3 (create-book nil nil "xxxxxxxxxx" :fill? true)
+        ]
     (are [x y] (= x y)
       nil (create-book nil nil nil)
       "aa" (:title book1)
@@ -110,6 +119,8 @@
       false (string/blank? (nth (:thumbnail book2) 1))
       false (string/blank? (nth (:thumbnail book2) 2))
       0 (:point book2)
+
+      nil book3
       )
     )
   )
@@ -172,9 +183,9 @@
 
 (deftest test-find-book ; {{{
   (create-book "hello" "aa" "") (ds/save! (assoc (ds/retrieve Book "hello") :point 3))
-  (create-book "neko" "bb" "") (ds/save! (assoc (ds/retrieve Book "neko") :point 2))
+  (create-book "neko" "bb" nil) (ds/save! (assoc (ds/retrieve Book "neko") :point 2))
   (create-book "inu" "bb" "") (ds/save! (assoc (ds/retrieve Book "inu") :point 1))
-  (create-book "wani" "cc" "")
+  (create-book "wani" "cc" "test")
 
   (are [x y] (= x y)
     0 (count (find-book :title "unknown"))
@@ -189,6 +200,8 @@
     1 (count (find-book :author "bb" :limit 1))
     "neko" (:title (first (find-book :author "bb")))
     "inu" (:title (first (find-book :author "bb" :limit 1 :page 2)))
+
+    1 (count (find-book :isbn "test"))
     )
   ) ; }}}
 
@@ -677,4 +690,56 @@
     )
   ) ; }}}
 
+(deftest test-controller-like-book-new ; {{{
+  (let [res (testGET "/admin/login/test")]
+    (testPOST {:title "hello"} "/like/book/new")
+    (let [book (get-book "hello")]
+      (are [x y] (= x y)
+        false (nil? book)
+        "hello" (:title book)
+        nil (:author book)
+        nil (:isbn book)
+        0 (:point book)
+        )
+      )
+    (testPOST-with-session res {:title "hello"} "/like/book/new")
+    (is (= 1 (:point (get-book "hello"))))
+    (testPOST-with-session res {:isbn "4001156768"} "/like/book/new")
+    (let [book (first (find-book :isbn "4001156768" :limit 1))]
+      (are [x y] (= x y)
+        false (nil? book)
+        false (string/blank? (:title book))
+        false (string/blank? (:author book))
+        false (nil? (:thumbnail book))
+        1 (:point book)
+        )
+      )
+    )
+  ) ; }}}
 
+(deftest test-controller-post-comment ; {{{
+  (create-book "aa" "" "")
+  (let [res (testGET "/admin/login/test")
+        user-key-str (key->str (ds/get-key-object (get-user "test")))
+        book-key-str (key->str (ds/get-key-object (get-book "aa")))
+        comment1 (body->json (testPOST {:book book-key-str :text "helloworld"} "/post/comment"))
+        comment2 (body->json (testPOST-with-session
+                               res {:book book-key-str :text "nekonyan"} "/post/comment"))
+        guest (get-user *guest-name*)
+        ]
+
+    (are [x y] (= x y)
+      false (nil? guest)
+      "aa" (:title (:book comment1))
+      *guest-name* (:name (:user comment1))
+      *guest-avatar* (:avatar (:user comment1))
+      "helloworld" (:text comment1)
+      true (today? (:date comment1))
+
+      "aa" (:title (:book comment2))
+      "test" (:name (:user comment2))
+      "nekonyan" (:text comment2)
+      true (today? (:date comment2))
+      )
+    )
+  ) ; }}}
