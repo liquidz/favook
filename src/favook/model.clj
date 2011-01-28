@@ -58,7 +58,7 @@
 (ds/defentity Comment [^:key id book user text date])
 (ds/defentity Activity [^:key id book user message date])
 
-(declare get-like-book)
+(declare get-user get-book get-like-book)
 
 ;; Private {{{
 (def char-list (concat (range 48 58) (range 65 91) (range 97 123)))
@@ -125,13 +125,28 @@
 
 ; }}}
 
+;(defn key-property->entity [e]
+;  (when-not (nil? e)
+;    (let [get-user* (fn [e* k] (remove-extra-key (get-user (k e*))))]
+;      (case (get-kind e)
+;        ("LikeBook" "Activity") (assoc e :user (get-user* e :user) :book (get-book (:book e)))
+;        "LikeUser" (assoc e :to-user (get-user* e :to-user) :from-user (get-user* e :from-user))
+;        nil
+;        )
+;      )
+;    )
+;  )
+
 ;; User
 (defn create-user [name avatar & {:keys [guest?] :or {guest? false}}]
   (aif (ds/retrieve User name) it
-       (let [user (User. name avatar (if guest? nil (new-secret-mailaddress)) 0 (now))]
-         (ds/save! user)
-         user
+       (let [key (ds/save! (User. name avatar (if guest? *guest-mail* (new-secret-mailaddress)) 0 (now)))]
+         (ds/retrieve User key)
          )
+       ;(let [user (User. name avatar (if guest? *guest-mail* (new-secret-mailaddress)) 0 (now))]
+       ;  (ds/save! user)
+       ;  user
+       ;  )
        )
   )
 
@@ -139,7 +154,7 @@
   (ds/save! (assoc user :secret-mail (new-secret-mailaddress)))
   )
 
-(defn get-user [{name :name, :as arg}]
+(defn get-user [{:keys [name] :as arg}]
   (ds/retrieve User (if (or (string? arg) (key? arg)) arg name))
   )
 
@@ -160,8 +175,9 @@
            (let [book (Book. title* author isbn nil 0)
                  filled-book (if fill? (fill-book-info book) book)
                  ]
-             (if-not (nil? filled-book) (ds/save! filled-book))
-             filled-book
+             (if-not (nil? filled-book)
+               (ds/retrieve Book (ds/save! filled-book))
+               )
              )
            )
       )
@@ -207,13 +223,21 @@
   ([#^Book book, #^User user] (get-activity (make-book-user-key book user)))
   )
 (defn create-activity [#^Book book, #^User user, message]
-  (ds/save! (Activity. (make-book-user-key book user) book user message (now))))
-(defn get-activity-list [& {:keys [book user message limit page], :or {limit *default-limit*, page 1}}]
-  (let [[key val] (if book [:book book] (if user [:user user]))
-        offset (* limit (dec page))]
-    (if message
-      (ds/query :kind Activity :filter [(= key val) (= :message message)] :sort [[:date :desc]] :limit limit :offset offset)
-      (ds/query :kind Activity :filter (= key val) :sort [[:date :desc]] :limit limit :offset offset)
+  (ds/retrieve Activity (ds/save! (Activity. (make-book-user-key book user) book user message (now))))
+  )
+(defn get-activity-list [& {:keys [book user message limit page], :or {book nil, user nil, limit *default-limit*, page 1}}]
+  (let [offset (* limit (dec page))]
+    (if (and (nil? book) (nil? user))
+      (if message
+        (ds/query :kind Activity :filter (= :message message) :sort [[:date :desc]] :limit limit :offset offset)
+        (ds/query :kind Activity :sort [[:date :desc]] :limit limit :offset offset)
+        )
+      (let [[key val] (if book [:book book] (if user [:user user]))]
+        (if message
+          (ds/query :kind Activity :filter [(= key val) (= :message message)] :sort [[:date :desc]] :limit limit :offset offset)
+          (ds/query :kind Activity :filter (= key val) :sort [[:date :desc]] :limit limit :offset offset)
+          )
+        )
       )
     )
   )
@@ -228,7 +252,7 @@
         vals
         (map #(assoc (first %) :point (count %)))
         (sort #(> (:point %1) (:point %2)))
-        (map #(dissoc % :date))
+        ;(map #(dissoc % :date))
         )
       )
     )
@@ -266,9 +290,9 @@
   (let [offset (* limit (dec page))
         [fkey fval] (if user [:user user] [:book book])]
     (if (or user book)
-      (let [res (ds/query :kind LikeBook :filter (= fkey fval) :sort [[:point :desc]] :limit limit :offset offset)]
+      (let [res (ds/query :kind LikeBook :filter (= fkey fval) :sort [[:point :desc]] :limit limit :offset offset)
+            ]
         (if user
-          ;(map #(assoc % :canlike (not (today? (:date %)))) res)
           (map add-can-like res)
           res
           )
@@ -312,17 +336,78 @@
 
 ;; Comment
 (defn create-comment [#^Book book, #^User user, text]
-  (let [comment (Comment. (make-book-user-key book user) book user text (now))]
-    (ds/save! comment)
+  (let [key (ds/save! (Comment. (make-book-user-key book user) book user text (now)))]
     (create-activity book user "comment")
-
-    ;(println (type (:user comment)) (entity? (:user comment)))
-
-    comment
+    (ds/retrieve Comment key)
     )
   )
 (def get-comment-list (partial get-entity-list Comment))
 
 
 
+;; Test
+(defn create-test-data []
+  (let [user1 (create-user "aa" *guest-avatar*)
+        user2 (create-user "bb" *guest-avatar*)
+        user3 (create-user "cc" *guest-avatar*)
+        book1 (create-book "hoge" "fuga" "4001156768")
+        book2 (create-book "neko" "nyan" "4001156768")
+        book3 (create-book "inu" "wan" "4001156768")
+        ]
+    (like-book book1 user1)
+    (like-book book1 user2)
+    (like-book book2 user3)
 
+    (like-user user1 user2)
+    (like-user user1 user3)
+    (like-user user2 user1)
+    )
+  )
+
+;; Output Utils
+(defn remove-extra-key [m] (dissoc m :secret-mail))
+
+(def delete-html-tag (partial string/replace-re #"<.+?>" ""))
+
+(defn key->entity [key]
+  (when-not (nil? key)
+    (let [get-user* (fn [e* k] (remove-extra-key (get-user (k e*))))]
+      ;(println "kind =" (.getKind key))
+      (case (.getKind key)
+        "User" (remove-extra-key (ds/retrieve User key))
+        "Book" (ds/retrieve Book key)
+        ;"LikeBook"
+        ;(let [e (ds/retrieve LikeBook key)]
+        ;  (assoc e :user (get-user* e :user) :book (get-book (:book e))))
+        ;"Activity"
+        ;(let [e (ds/retrieve Activity key)]
+        ;  (assoc e :user (get-user* e :user) :book (get-book (:book e))))
+        ;"LikeUser"
+        ;(let [e (ds/retrieve LikeUser key)]
+        ;  (assoc e :to-user (get-user* e :to-user) :from-user (get-user* e :from-user)))
+        nil
+        )
+      )
+    )
+  )
+(defn convert-map [m]
+  (apply
+    hash-map
+    (interleave
+      (map keyword (keys m))
+      (map (comp string/trim delete-html-tag) (vals m))))
+  )
+
+(defn map-val-map [f m]
+  (apply hash-map (mapcat (fn [[k v]] [k (f v)]) m))
+  )
+
+(defn- json-conv [obj]
+  (cond
+    (or (seq? obj) (list? obj)) (map json-conv obj)
+    (map? obj) (map-val-map json-conv (remove-extra-key obj))
+    (key? obj) (key->entity obj) ;(key->str obj)
+    :else obj
+    )
+  )
+(defn to-json [obj] (json/json-str (json-conv obj)))

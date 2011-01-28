@@ -12,3 +12,4 @@
 (defn str->key [obj] (if (string? obj) (KeyFactory/stringToKey obj)))
 ;(defn entity? [obj] (instance? (:on-interface ds/EntityProtocol) obj))
 (defn entity? [obj] (extends? ds/EntityProtocol (class obj)))
+(defn get-kind [entity] (.getKind (ds/get-key-object entity)))

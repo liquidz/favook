@@ -52,13 +52,30 @@
     )
   )
 
+(defn add-key-str [e]
+  (case (get-kind e)
+    ("LikeBook" "Comment" "Activity")
+    (assoc e :user_key (key->str (:user e)) :book_key (key->str (:book e)))
+    "LikeUser"
+    (assoc e :to_user_key (key->str (:to-user e)) :from_user_key (key->str (:from-user e)))
+    nil
+    )
+  )
+
 ; == Controllers ==
-(defn point-like-book-controller [params] ; {{{
+(defn list-book-controller [params]
+  (let [[limit page] (params->limit-and-page params)]
+    (get-book-list :limit limit :page page)
+    )
+  )
+
+(defn who-like-book-controller [params] ; who like these books {{{
   (let [[limit page] (params->limit-and-page params)
         key (if (:user params) :user (if (:book params) :book))
         data (if key (remove nil? (map (if (= key :user) get-user get-book)
                                        (string/split #"\s*,\s*" (key params)))))
-        likedata (if-not (empty? data) (flatten (map #(get-like-book-list key %) data)))
+        ;likedata (if-not (empty? data) (flatten (map #(get-like-book-list key %) data)))
+        likedata (if-not (empty? data) (map add-key-str (flatten (map #(get-like-book-list key %) data))))
         ]
 
     (case key
@@ -69,11 +86,12 @@
     )
   ) ; }}}
 
-(defn point-like-user-controller [params] ; {{{
+(defn who-like-user-controller [params] ; {{{
   (let [[limit page] (params->limit-and-page params)
         [key val] (aif (:to_user params) [:to-user it] (aif (:from_user params) [:from-user it]))
         data (if key (remove nil? (map get-user (string/split #"\s*,\s*" val))))
-        likedata (if-not (empty? data) (flatten (map #(get-like-user-list key %) data)))
+        ;likedata (if-not (empty? data) (flatten (map #(get-like-user-list key %) data)))
+        likedata (if-not (empty? data) (map add-key-str (flatten (map #(get-like-user-list key %) data))))
         ]
     (case key
       :to-user
@@ -85,14 +103,39 @@
     )
   ) ; }}}
 
-(defn point-comment-controller [params] ; {{{
+(defn hot-book-controller [params]
+  (let [[limit page] (params->limit-and-page params)
+        type (aif (:type params) (if (= it "user") :user :book) :book)
+        day (aif (:day params) (parse-int it) 7)]
+    (when (and (pos? day) (<= day 7))
+      (let [res (take limit
+            (drop (* limit (dec page)) (aggregate-activity "like" type day)))]
+        (map add-key-str res)
+        ;(case type
+        ;  :book (map #(assoc % :book (get-book (:book %))) res)
+        ;  :user (map #(assoc % :user (remove-extra-key (get-user (:user %)))) res)
+        ;  nil
+        ;  )
+        )
+      )
+    )
+  )
+
+(defn hot-comment-controller [params] ; {{{
   (let [[limit page] (params->limit-and-page params)
         type (aif (:type params) (if (= it "user") :user :book) :book)
         day (aif (:day params) (parse-int it) 7)
         ]
     (when (and (pos? day) (<= day 7))
-      (take limit
-            (drop (* limit (dec page)) (aggregate-activity "comment" type day)))
+      (let [res (take limit
+            (drop (* limit (dec page)) (aggregate-activity "comment" type day)))]
+        (map add-key-str res)
+        ;(case type
+        ;  :book (map #(assoc % :book (get-book (:book %))) res)
+        ;  :user (map #(assoc % :user (remove-extra-key (get-user (:user %)))) res)
+        ;  nil
+        ;  )
+        )
       )
     )
   ) ; }}}
@@ -120,36 +163,34 @@
         users (remove nil? (map get-user (string/split #"\s*,\s*" (:name params))))
         res (flatten (map #(get-activity-list :user % :message message :limit (* limit page)) users))
         ]
-    (take limit (drop (* limit (dec page)) (sort #(str-comp >= (:date %1) (:date %2)) res)))
+    (let [res2 (take limit (drop (* limit (dec page)) (sort #(str-comp >= (:date %1) (:date %2)) res)))]
+      (map add-key-str res2)
+      )
     )
   ) ; }}}
 
-(defn like-book-history-controller [params] ; {{{
-  (let [[limit page] (params->limit-and-page params)
-        users (remove nil? (map get-user (string/split #"\s*,\s*" (:name params))))
-        res (flatten (map #(get-activity-list :user % :message "like" :limit (* limit page)) users))
-        ]
-    (take limit (drop (* limit (dec page)) (sort #(str-comp >= (:date %1) (:date %2)) res)))
-    )
-  )
 (def like-book-history-controller (partial get-activity-history "like"))
-(def history-comment-controller (partial get-activity-list "comment")) ; }}}
+(def history-comment-controller (partial get-activity-history "comment")) ; }}}
 
-(defn like-book-new-controller [{:keys [title author isbn]
-                                 :or {title nil, author nil, isbn nil}
+(defn like-book-new-controller [{:keys [title author isbn text]
+                                 :or {title nil, author nil, isbn nil, text nil}
                                  :as params} session #^User user]
   (let [book (create-book title author isbn :fill? true)]
     (if (nil? book)
       (with-message session (redirect "/") "posted data is incorrect")
-      (when (loggedin? session)
-        (like-book book user)
-        (redirect "/")
+      (do
+        (if-not (nil? text) (create-comment book user text))
+        (when (loggedin? session)
+          (like-book book user)
+          (redirect "/")
+          )
         )
       )
     )
   )
 
 (defn like-book-new-from-mail-controller [{:keys [subject from to body]}]
+  (init-guest-user)
   (let [user (get-user-from-mail to)]
     (when-not (nil? user)
       (let [isbn-flag (isbn? subject)
@@ -158,8 +199,11 @@
             book (create-book title nil isbn :fill? true)
             ]
         (if (nil? book)
-          "" ; (send-error-mail from "posted data is incorrect")
-          (like-book book user)
+          false ; (send-error-mail from "posted data is incorrect")
+          (do
+            (if-not (guest? user) (like-book book user))
+            (if-not (string/blank? body) (create-comment book user body))
+            )
           )
         )
       )
@@ -170,6 +214,7 @@
   (when (loggedin? session)
     (like-book (get-book (str->key book)) (get-user (login-name session))
                :point (parse-int point))
+    true
     )
   )
 
@@ -178,7 +223,7 @@
   (let [book-entity (get-book (str->key book))
         user (if (loggedin? session) (get-user (:name session)) (get-user *guest-name*))
         ]
-    (create-comment book-entity user text)
+    (add-key-str (create-comment book-entity user text))
     )
   )
 
@@ -186,12 +231,11 @@
 (defroutes api-handler
   (apiGET "/user/:name" get-user)
   (apiGET "/book/:title" get-book)
-  ; like/book/point
-  (apiGET "/point/like/book" point-like-book-controller)
-  ; like/user/point
-  (apiGET "/point/like/user" point-like-user-controller)
-  ; comment/point
-  (apiGET "/point/comment" point-comment-controller)
+  (apiGET "/list/book" list-book-controller)
+  (apiGET "/who/like/book" who-like-book-controller)
+  (apiGET "/who/like/user" who-like-user-controller)
+  (apiGET "/hot/book" hot-book-controller)
+  (apiGET "/hot/comment" hot-comment-controller)
   (apiGET "/search" search-controller)
   ; like/book/history
   (apiGET "/like/book/history" like-book-history-controller)
@@ -216,6 +260,7 @@
   (GET "/logout" _ (with-message (redirect "/") "logged out"))
 
   (POST "/like/book/new" {params :params, session :session}
+    (init-guest-user)
     (like-book-new-controller
       (convert-map params)
       session
@@ -234,6 +279,7 @@
   (GET "/admin/message/:text" {params :params, session :session}
     (with-message session (redirect "/admin") (get params "text"))
     )
+  (GET "/admin/create/data" {session :session} (create-test-data) "ok")
   )
 
 (defroutes not-found-route

@@ -43,12 +43,15 @@
 (defn- update-activity-date [b u d]
   (ds/save! (assoc (ds/retrieve Activity (make-book-user-key b u)) :date d)))
 
-(defn- nth-book [el n]
+(defn- nth-book-entity [el n]
   (let [book (:book (nth el n))]
     (ds/retrieve Book (if (key? book) book (str->key book)))))
-(defn- nth-user [key el n]
-  (let [user (key (nth el n))]
-    (ds/retrieve User (if (key? user) user (str->key user)))))
+(defn- nth-book [el n] (:book (nth el n)))
+;(defn- nth-user [key el n]
+;  (let [user (key (nth el n))]
+;    (ds/retrieve User (if (key? user) user (str->key user)))))
+(defn- nth-user [key el n] (key (nth el n)))
+(defn- entity->key-str [e] (key->str (ds/get-key-object e)))
 
 ;; == Ds-Util Test ==
 (deftest test-entity? ; {{{
@@ -99,7 +102,7 @@
     )
   ) ; }}}
 
-(deftest test-create-book
+(deftest test-create-book ; {{{
   (let [book1 (create-book "aa" "bb" "cc")
         book2 (create-book nil nil "4001156768" :fill? true)
         book3 (create-book nil nil "xxxxxxxxxx" :fill? true)
@@ -123,7 +126,7 @@
       nil book3
       )
     )
-  )
+  ) ; }}}
 
 (deftest test-get-book ; {{{
   (let [book (create-book "title" "" "")
@@ -365,6 +368,9 @@
     (ds/save! (assoc (get-activity book1 user) :date "1900-01-01"))
 
     (are [x y] (= x y)
+      2 (count (get-activity-list))
+      "comment" (:message (first (get-activity-list)))
+
       2 (count (get-activity-list :user user))
       1 (count (get-activity-list :user user :limit 1))
       1 (count (get-activity-list :book book1))
@@ -416,6 +422,23 @@
   ) ; }}}
 
 ;; == Controller Test ==
+
+(deftest test-controller-list-book
+  (create-book "hoge" "" "")
+  (ds/save! (assoc (get-book "hoge") :point 2))
+  (create-book "fuga" "" "")
+  (ds/save! (assoc (get-book "fuga") :point 1))
+  (create-book "neko" "" "")
+
+  (are [x y] (= x y)
+    3 (count (body->json (testGET "/list/book")))
+    1 (count (body->json (testGET "/list/book?limit=1")))
+    "hoge" (:title (first (body->json (testGET "/list/book"))))
+    "fuga" (:title (second (body->json (testGET "/list/book"))))
+    "fuga" (:title (first (body->json (testGET "/list/book?limit=1&page=2"))))
+    )
+  )
+
 (deftest test-controller-get-user-and-get-book ; {{{
   (let [base "/user/" bbase "/book/"]
     (create-user "aa" "av")
@@ -431,8 +454,8 @@
     )
   ) ; }}}
 
-(deftest test-controller-point-like-book ; {{{
-  (let [base "/point/like/book?"
+(deftest test-controller-who-like-book ; {{{
+  (let [base "/who/like/book?"
         user1 (create-user "aa" "av")
         user2 (create-user "bb" "bv")
         user3 (create-user "cc" "cv")
@@ -470,8 +493,8 @@
     )
   ) ; }}}
 
-(deftest test-controller-point-like-user ; {{{
-  (let [base "/point/like/user?"
+(deftest test-controller-who-like-user ; {{{
+  (let [base "/who/like/user?"
         user1 (create-user "aa" "")
         user2 (create-user "bb" "")
         user3 (create-user "cc" "")
@@ -489,7 +512,6 @@
     (like-user user2 user3)
 
     (like-user user3 user1)
-
 
     (are [x y] (= x y)
       1 (count (body->json (testGET base "from_user=bb")))
@@ -522,8 +544,54 @@
     )
   ) ; }}}
 
-(deftest test-controller-point-comment ; {{{
-  (let [base "/point/comment?"
+(deftest test-controller-hot-book
+  (let [base "/hot/book?"
+        user1 (create-user "aa" "") user2 (create-user "bb" "")
+        user3 (create-user "cc" "") user4 (create-user "dd" "")
+        book1 (create-book "hoge" "" "") book2 (create-book "fuga" "" "")
+        book3 (create-book "neko" "" "") ]
+    (like-book book1 user1) (update-activity-date book1 user1 (n-days-ago 2))
+    (like-book book1 user2) (update-activity-date book1 user2 (n-days-ago 2))
+    (like-book book1 user3) (update-activity-date book1 user3 (n-days-ago 2))
+    (like-book book2 user2) (update-activity-date book2 user2 (n-days-ago 1))
+    (like-book book2 user4) (update-activity-date book2 user4 (n-days-ago 1))
+    (like-book book3 user2)
+
+    (are [x y] (= x y)
+      3 (count (body->json (testGET base "type=book")))
+      1 (count (body->json (testGET base "type=book&day=1")))
+      2 (count (body->json (testGET base "type=book&day=2")))
+      3 (count (body->json (testGET base "type=book&day=3")))
+      0 (count (body->json (testGET base "type=book&day=100")))
+      1 (count (body->json (testGET base "type=book&day=3&limit=1")))
+
+      ;"neko" (:title (nth-book (body->json (testGET base "type=book&day=1")) 0))
+      "neko" (:title (nth-book (body->json (testGET base "type=book&day=1")) 0))
+      "fuga" (:title (nth-book (body->json (testGET base "type=book&day=2")) 0))
+      "hoge" (:title (nth-book (body->json (testGET base "type=book&day=3")) 0))
+      3 (:point (first (body->json (testGET base "type=book&day=3"))))
+      2 (:point (first (body->json (testGET base "type=book&day=3&limit=1&page=2"))))
+
+      4 (count (body->json (testGET base "type=user")))
+      1 (count (body->json (testGET base "type=user&day=1")))
+      2 (count (body->json (testGET base "type=user&day=2")))
+      4 (count (body->json (testGET base "type=user&day=3")))
+      0 (count (body->json (testGET base "type=user&day=100")))
+      1 (count (body->json (testGET base "type=user&day=3&limit=1")))
+      "bb" (:name (nth-user :user (body->json (testGET base "type=user&day=1")) 0))
+      1 (:point (first (body->json (testGET base "type=user&day=1"))))
+      "bb" (:name (nth-user :user (body->json (testGET base "type=user&day=2")) 0))
+      2 (:point (first (body->json (testGET base "type=user&day=2"))))
+      "bb" (:name (nth-user :user (body->json (testGET base "type=user&day=3")) 0))
+      3 (:point (first (body->json (testGET base "type=user&day=3"))))
+      1 (:point (second (body->json (testGET base "type=user&day=3"))))
+      1 (:point (nth (body->json (testGET base "type=user&day=3")) 2))
+      )
+    )
+  )
+
+(deftest test-controller-hot-comment ; {{{
+  (let [base "/hot/comment?"
         user1 (create-user "aa" "") user2 (create-user "bb" "")
         user3 (create-user "cc" "") user4 (create-user "dd" "")
         book1 (create-book "hoge" "" "") book2 (create-book "fuga" "" "")
@@ -661,8 +729,8 @@
 (deftest test-controller-like-book ; {{{
   (create-user "test" "")
   (let [base "/like/book?"
-        key-str (-> (create-book "hoge" "fuga" "12345") ds/get-key-object key->str)
-        key-str2 (-> (create-book "neko" "inu" "67890") ds/get-key-object key->str)
+        key-str (entity->key-str (create-book "hoge" "fuga" "12345"))
+        key-str2 (entity->key-str (create-book "neko" "inu" "67890"))
         res (testGET "/admin/login/test")
         ;data (body->json (testGET-with-session res base "book=" key-str))
         ;data2 (body->json (testGET-with-session res base "book=" key-str))
@@ -678,14 +746,14 @@
       true (today? (:date (first (get-like-book-list))))
 
       2 (:point (first (get-like-book-list)))
-      "neko" (:title (nth-book (get-like-book-list) 0))
-      "inu" (:author (nth-book (get-like-book-list) 0))
-      "67890" (:isbn (nth-book (get-like-book-list) 0))
+      "neko" (:title (nth-book-entity (get-like-book-list) 0))
+      "inu" (:author (nth-book-entity (get-like-book-list) 0))
+      "67890" (:isbn (nth-book-entity (get-like-book-list) 0))
 
       1 (:point (second (get-like-book-list)))
-      "hoge" (:title (nth-book (get-like-book-list) 1))
-      "fuga" (:author (nth-book (get-like-book-list) 1))
-      "12345" (:isbn (nth-book (get-like-book-list) 1))
+      "hoge" (:title (nth-book-entity (get-like-book-list) 1))
+      "fuga" (:author (nth-book-entity (get-like-book-list) 1))
+      "12345" (:isbn (nth-book-entity (get-like-book-list) 1))
       )
     )
   ) ; }}}
@@ -702,6 +770,17 @@
         0 (:point book)
         )
       )
+
+    (testPOST {:title "hoge" :text "fuga"} "/like/book/new")
+    (let [activity (first (get-activity-list))]
+      (are [x y] (= x y)
+        false (nil? activity)
+        "comment" (:message activity)
+        (ds/get-key-object (get-user *guest-name*)) (:user activity)
+        (ds/get-key-object (get-book "hoge")) (:book activity)
+        )
+      )
+
     (testPOST-with-session res {:title "hello"} "/like/book/new")
     (is (= 1 (:point (get-book "hello"))))
     (testPOST-with-session res {:isbn "4001156768"} "/like/book/new")
@@ -720,8 +799,7 @@
 (deftest test-controller-post-comment ; {{{
   (create-book "aa" "" "")
   (let [res (testGET "/admin/login/test")
-        user-key-str (key->str (ds/get-key-object (get-user "test")))
-        book-key-str (key->str (ds/get-key-object (get-book "aa")))
+        book-key-str (entity->key-str (get-book "aa"))
         comment1 (body->json (testPOST {:book book-key-str :text "helloworld"} "/post/comment"))
         comment2 (body->json (testPOST-with-session
                                res {:book book-key-str :text "nekonyan"} "/post/comment"))
@@ -730,16 +808,46 @@
 
     (are [x y] (= x y)
       false (nil? guest)
-      "aa" (:title (:book comment1))
-      *guest-name* (:name (:user comment1))
-      *guest-avatar* (:avatar (:user comment1))
+      ;book-key-str (:book comment1)
+      book-key-str (:book_key comment1)
+      (entity->key-str guest) (:user_key comment1)
       "helloworld" (:text comment1)
       true (today? (:date comment1))
 
-      "aa" (:title (:book comment2))
-      "test" (:name (:user comment2))
-      "nekonyan" (:text comment2)
+      ;book-key-str (:book comment2)
+      book-key-str (:book_key comment2)
+      (entity->key-str (get-user "test")) (:user_key comment2)
       true (today? (:date comment2))
+      )
+    )
+  ) ; }}}
+
+(deftest test-controller-like-book-new-from-mail ; {{{
+  (let [from "hoge@fuga.com"
+        to (:secret-mail (create-user "aa" ""))
+        base-url "/_ah/mail/"]
+    (testPOST {:from "hoge@fuga.com" :to *guest-mail* :subject "hoge" :body ""} base-url *guest-mail*)
+    (let [book (get-book "hoge")]
+      (are [x y] (= x y)
+        false (nil? book)
+        "hoge" (:title book)
+        true (string/blank? (:author book))
+        nil (:thumbnail book)
+        0 (:point book)
+        )
+      )
+
+    (testPOST {:from "hoge@fuga.com" :to to :subject "4001156768" :body "hello"} base-url to)
+    (let [book (first (find-book :isbn "4001156768" :limit 1))]
+      (are [x y] (= x y)
+        false (nil? book)
+        false (string/blank? (:title book))
+        false (string/blank? (:author book))
+        "4001156768" (:isbn book)
+        false (nil? (:thumbnail book))
+        1 (:point book)
+        1 (count (get-activity-list))
+        )
       )
     )
   ) ; }}}

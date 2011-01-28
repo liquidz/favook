@@ -1,5 +1,6 @@
 (ns favook.util
-  (:use favook.constants ds-util)
+  (:use favook.constants ds-util
+     )
   (:require [clojure.contrib.string :as string]
      [clojure.contrib.json :as json]
      [appengine-magic.services.datastore :as ds]
@@ -13,32 +14,6 @@
 (defmacro aif [expr then & [else]]
   `(let [~'it ~expr] (if ~'it ~then ~else))
   )
-
-(defn remove-extra-key [m] (dissoc m :secret-mail))
-
-(def delete-html-tag (partial string/replace-re #"<.+?>" ""))
-
-(defn convert-map [m]
-  (apply
-    hash-map
-    (interleave
-      (map keyword (keys m))
-      (map (comp string/trim delete-html-tag) (vals m))))
-  )
-
-(defn map-val-map [f m]
-  (apply hash-map (mapcat (fn [[k v]] [k (f v)]) m))
-  )
-
-(defn- json-conv [obj]
-  (cond
-    (or (seq? obj) (list? obj)) (map json-conv obj)
-    (map? obj) (map-val-map json-conv (remove-extra-key obj))
-    (key? obj) (key->str obj)
-    :else obj
-    )
-  )
-(defn to-json [obj] (json/json-str (json-conv obj)))
 
 (defn calendar-format
   ([calendar-obj format-str timezone-str]
@@ -73,8 +48,10 @@
   )
 
 (defn params->limit-and-page [params]
-  [(aif (:limit params) (parse-int it) *default-limit*)
-   (aif (:page params) (parse-int it) 1)])
+  (let [limit (aif (:limit params) (parse-int it) *default-limit*)
+        page (aif (:page params) (parse-int it) 1)]
+    [(if (pos? limit) limit *default-limit*)
+     (if (pos? page) page 1)]))
 
 (defn take-if
   ([f col] (filter f col))
@@ -116,7 +93,7 @@
   (and
     (= *guest-name* (:name user))
     (= *guest-avatar* (:avatar user))
-    (nil? (:secret-mail user))
+    (= *guest-mail* (:secret-mail user))
     )
   )
 
