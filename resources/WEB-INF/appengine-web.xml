@@ -11,6 +11,7 @@
         <include path="/img/**.jpg" />
         <include path="/img/**.gif" />
         <include path="/js/**.js" />
+		<include path="/static/**" />
 	</static-files>
 	<resource-files/>
 

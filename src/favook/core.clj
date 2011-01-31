@@ -245,9 +245,11 @@
   (apiGET-with-session "/like/book" like-book-controller)
 
   (jsonGET "/parts/message" {session :session} (with-message session (:message session) ""))
-  (jsonGET "/parts/login" {session :session} (if (loggedin? session)
-                                               (dissoc session :user)
-                                               {:loggedin false}))
+  (jsonGET "/parts/login" {session :session}
+           (if (loggedin? session)
+             {:url "/logout"}
+             (dissoc session :user)
+             {:loggedin false}))
 
   (apiPOST-with-session "/post/comment" post-comment-controller)
 

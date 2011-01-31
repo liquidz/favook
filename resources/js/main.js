@@ -5,19 +5,44 @@ Favook.constant = {
 	isbnAttribute: "data-isbn"
 };
 
-Favook.getMessage = function(){
-	$.getJSON("/parts/message", function(res){
-		$("#message").html(res);
-	});
-};
+Favook.template = {};
+Favook.template.base = function(fn){
+	var self = function(obj){
+		if($.isArray(obj)){
+			return $.map(obj, function(v){ return self(v); }).join("");
+		} else {
+			return fn(obj);
+		}
+	};
+	return self;
+}
+//Favook.template.book = function(obj){
+//	if($.isArray(obj)){
+//		return $.map(obj, function(v, i){ return Favook.template.book(v); }).join("");
+//	} else {
+//		"<li><a href=''></a></li>"
+//	}
+//};
+
+
+//Favook.template.book_li = SNBinder.compile("<li><a href=''></a></li>")
+
+
+Favook.template.book = Favook.template.base(function(act){
+		SNBinder.bind("<li><a href=''></a></li>")
+	return "<li>"+act.book.title+"</li>";
+});
+
+Favook.href = SNBinder.compile("<a href='$(.href)' title='$(.title)'>$(.caption)</a>")
 
 Favook.getHotBooks = function(){
 	$.getJSON("/hot/book", {limit: 10}, function(res){
+		console.log("kiteru = " + res);
 		var hb = $("#hot_books");
 		hb.html("");
 		$.each(res, function(i, v){
 			console.log(v);
-			v.append("<p>" + v.title + "</p>");
+			hb.append("<p>" + v.book.title + "</p>");
 		});
 	});
 };
@@ -37,10 +62,32 @@ Favook.getHotBooks = function(){
 //	});
 //};
 
-$(function(){
-	Favook.getMessage();
+//$(document).ready(function(){ SNBinder.init({}); });
 
-	Favook.getHotBooks();
+$(function(){
+	SNBinder.init({});
+
+	SNBinder.flush_all(); // dev
+
+	// load message
+	$("#message").load("/parts/message");
+
+
+	//console.log(SNBinder.bind_rowset("<s>$(.name)</s>", [{name:"neko"}, {name:"inu"}]));
+
+	//console.log(Favook.template.book({book: {title: "hello"}}));
+
+	$.getJSON("/hot/book", function(books){
+		$("#hot_books ul").html(Favook.template.book(books));
+	});
+
+	//SNBinder.get_named_sections("/static/template.htm", {}, function(templates){
+	//	SNBinder.get("/hot/book", {}, true, function(books){
+	//		$("#hot_books ul").html(SNBinder.bind_rowset(templates.book, books))
+	//	});
+	//});
+
+	//Favook.getHotBooks();
 	//Favook.getBookThumbnail("p.book", function(e, img){
 	//	if(img !== null){
 	//		e.append("<img src='"+img+"' />");
