@@ -5,24 +5,42 @@
 
 	<link rel="stylesheet" type="text/css" href="/css/main.css" />
 
-	<script type="text/javascript" src="./js/jquery-1.4.4.min.js"></script>
+	<script type="text/javascript" src="./js/jquery-1.5.min.js"></script>
+	<script type="text/javascript" src="http://ajax.microsoft.com/ajax/jquery.templates/beta1/jquery.tmpl.min.js"></script>
 <!--
+	<script type="text/javascript" src="./js/jquery-1.4.4.min.js"></script>
 	<script type="text/javascript" src="/js/mia.js"></script>
-	-->
 	<script type="text/javascript" src="./js/snbinder-0.5.3.js"></script>
+	-->
 	<script type="text/javascript" src="./js/main.js"></script>
 
 	<title>favook</title>
 </head>
 <body>
-	<a href="/admin/login/test">test login</a>
+	<!-- templates {{{ -->
+	<script id="tmplLogin" type="text/x-jquery-tmpl">
+		{{if loggedin}}
+			Welcome ${name}. <a href="/logout">logout</a>
+		{{else}}
+			<a href="/login">login</a>
+		{{/if}}
+	</script>
 
-	<!--
-	<form method="GET" action="/search">
-		<input type="search" name="keyword" />
-		<input type="submit" value="search" />
-	</form>
-	-->
+	<script id="tmplAggregatedBook" type="text/x-jquery-tmpl">
+		<li data-isbn="${book.isbn}">
+			<span class="point">${point}</span>:
+			<a class="book_link" href="/#!/book/${book_key}">${book.title}</a>
+			{{if book.author}}<span class="author">(<a class="author_link" href="/#!/author/${user_key}">${book.author}</a>)</span>{{/if}}
+		</li>
+	</script>
+
+	<script id="" type="text/x-jquery-tmpl">
+	</script>
+	<!-- /templates }}} -->
+
+	<p id="login"></p>
+
+	<a href="/admin/login/test">test login</a>
 
 	<p id="message"></p>
 
@@ -39,7 +57,13 @@
 	<section id="hot_books">
 		<h1>hot books</h1>
 		<ul></ul>
-	</div>
+	</section>
+
+
+	<section id="hot_comment_books">
+		<h1>hot comment books</h1>
+		<ul></ul>
+	</section>
 
 	<!--
 	<p class="book" data-isbn="9784101270210">white out</p>

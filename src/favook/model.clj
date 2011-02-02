@@ -223,7 +223,8 @@
   ([#^Book book, #^User user] (get-activity (make-book-user-key book user)))
   )
 (defn create-activity [#^Book book, #^User user, message]
-  (ds/retrieve Activity (ds/save! (Activity. (make-book-user-key book user) book user message (now))))
+  (ds/retrieve Activity (ds/save! (Activity. (make-book-user-key book user message)
+                                             book user message (now))))
   )
 (defn get-activity-list [& {:keys [book user message limit page], :or {book nil, user nil, limit *default-limit*, page 1}}]
   (let [offset (* limit (dec page))]
@@ -361,6 +362,10 @@
     (like-user user1 user2)
     (like-user user1 user3)
     (like-user user2 user1)
+
+    (create-comment book1 user1 "hello")
+    (create-comment book1 user2 "wani")
+    (create-comment book2 user3 "tori")
     )
   )
 
@@ -372,7 +377,6 @@
 (defn key->entity [key]
   (when-not (nil? key)
     (let [get-user* (fn [e* k] (remove-extra-key (get-user (k e*))))]
-      ;(println "kind =" (.getKind key))
       (case (.getKind key)
         "User" (remove-extra-key (ds/retrieve User key))
         "Book" (ds/retrieve Book key)

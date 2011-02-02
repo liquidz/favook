@@ -109,8 +109,10 @@
 ;(def str->md5 (partial digest-hex "MD5"))
 (def str->sha1 (partial digest-hex "SHA1"))
 
-(defn make-book-user-key [#^Book book, #^User user]
-  (str->sha1 (str (:title book) (:author book) (:isbn book) (:name user) (:avatar user)))
+(defn make-book-user-key [#^Book book, #^User user & options]
+  (let [data (concat [(:title book) (:author book) (:isbn book) (:name user) (:avatar user)] options)]
+    (str->sha1 (apply str data))
+    )
   )
 
 (defn make-user-user-key [#^User user1, #^User user2]

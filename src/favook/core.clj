@@ -3,9 +3,10 @@
      [compojure.core :only [GET POST defroutes wrap!]]
      [compojure.route :only [not-found]]
      [ring.util.response :only [redirect]]
-     [favook constants util model]
+;     [favook constants util model]
      ds-util
      )
+  (:use [favook constants util model] :reload-all)
   (:require
      [appengine-magic.core :as ae]
      [appengine-magic.services.datastore :as ds]
@@ -247,7 +248,6 @@
   (jsonGET "/parts/message" {session :session} (with-message session (:message session) ""))
   (jsonGET "/parts/login" {session :session}
            (if (loggedin? session)
-             {:url "/logout"}
              (dissoc session :user)
              {:loggedin false}))
 
